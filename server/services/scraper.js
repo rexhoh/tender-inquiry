@@ -46,9 +46,21 @@ async function searchTenders(keyword, startDate, endDate, onProgress = () => { }
                 }
 
                 if (subKeyword) {
-                    await page.evaluate(() => document.getElementById('tenderName').value = '');
-                    await page.type('#tenderName', subKeyword);
-                    log(`   → Typed keyword: "${subKeyword}"`);
+                    try {
+                        log(`   → Waiting for input field...`);
+                        await page.waitForSelector('#tenderName', { visible: true, timeout: 10000 });
+
+                        await page.evaluate(() => {
+                            const input = document.getElementById('tenderName');
+                            if (input) input.value = '';
+                        });
+                        await page.type('#tenderName', subKeyword);
+                        log(`   → Typed keyword: "${subKeyword}"`);
+                    } catch (e) {
+                        log(`   ⚠️ Failed to find or type in #tenderName: ${e.message}`);
+                        // Take a debug screenshot if possible in verification mode
+                        // await page.screenshot({ path: 'debug_error_input.png' });
+                    }
                 }
 
                 if (startDate) {
