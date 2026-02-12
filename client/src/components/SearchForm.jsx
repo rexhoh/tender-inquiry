@@ -165,13 +165,6 @@ const SearchForm = ({ onResults }) => {
     );
 };
 
-export default SearchForm;
-const [keyword, setKeyword] = useState('');
-const [startDate, setStartDate] = useState(format(subDays(new Date(), 7), 'yyyy/MM/dd'));
-const [endDate, setEndDate] = useState(format(new Date(), 'yyyy/MM/dd'));
-const [loading, setLoading] = useState(false);
-const [error, setError] = useState(null);
-
 const handleSearch = async (e) => {
     e.preventDefault();
     setLoading(true);
