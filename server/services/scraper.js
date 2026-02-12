@@ -5,10 +5,17 @@ const { createObjectCsvWriter } = require('csv-writer');
 
 const RESULTS_DIR = path.join(__dirname, '../data/results');
 
-async function searchTenders(keyword, startDate, endDate) {
-    console.log(`Starting search for: ${keyword}`);
+async function searchTenders(keyword, startDate, endDate, onProgress = () => { }) {
+    const log = (message) => {
+        console.log(message);
+        onProgress(message);
+    };
+
+    log(`🚀 Starting search for: ${keyword}`);
+    log(`Bypassing headless mode check (Verification Mode)`);
+
     const browser = await puppeteer.launch({
-        headless: true, // Revert to headless for production/performance
+        headless: true, // Keep headless for production, change to false for local debug if needed
         args: ['--no-sandbox', '--disable-setuid-sandbox', '--window-size=1280,800']
     });
 
@@ -21,62 +28,69 @@ async function searchTenders(keyword, startDate, endDate) {
         let allResults = [];
         const seenTenderIds = new Set();
 
-        console.log(`Parsed keywords (OR logic):`, keywords);
+        log(`📋 Parsed keywords: ${JSON.stringify(keywords)}`);
 
-        for (const subKeyword of keywords) {
-            console.log(`Executing search for sub-keyword: ${subKeyword}`);
+        for (const [index, subKeyword] of keywords.entries()) {
+            log(`🔍 [${index + 1}/${keywords.length}] Searching for: "${subKeyword}"...`);
 
             try {
-                // 1. Navigate to the page (Refresh for each search to clear state)
+                // 1. Navigate
+                log(`   → Navigating to Government Tender System...`);
                 await page.goto('https://web.pcc.gov.tw/prkms/tender/common/basic/indexTenderBasic', { waitUntil: 'networkidle2' });
 
                 // 2. Fill Search Form
                 const dateRadio = await page.$('#level_23');
-                if (dateRadio) await dateRadio.click();
+                if (dateRadio) {
+                    await dateRadio.click();
+                    log(`   → Selected "Date Range" search mode.`);
+                }
 
                 if (subKeyword) {
-                    // Clear input first
                     await page.evaluate(() => document.getElementById('tenderName').value = '');
                     await page.type('#tenderName', subKeyword);
+                    log(`   → Typed keyword: "${subKeyword}"`);
                 }
 
                 if (startDate) {
                     await page.evaluate((date) => { document.getElementById('tenderStartDate').value = date; }, startDate);
+                    log(`   → Set Start Date: ${startDate}`);
                 }
                 if (endDate) {
                     await page.evaluate((date) => { document.getElementById('tenderEndDate').value = date; }, endDate);
+                    log(`   → Set End Date: ${endDate}`);
                 }
+
+                // Debug: Screenshot before search
+                // const debugDir = path.join(__dirname, '../../public/debug');
+                // if (!fs.existsSync(debugDir)) fs.mkdirSync(debugDir, { recursive: true });
+                // await page.screenshot({ path: path.join(debugDir, `before_search_${index}.png`) });
 
                 // 3. Submit Search
                 const searchBtn = await page.evaluateHandle(() => {
                     const elements = document.querySelectorAll('div.bt_cen2, button, input[type="button"]');
                     for (let el of elements) {
-                        const text = el.innerText || '';
-                        const value = el.value || '';
-                        if (text.includes('查詢') || value.includes('查詢')) {
-                            return el;
-                        }
+                        if ((el.innerText || '').includes('查詢') || (el.value || '').includes('查詢')) return el;
                     }
                     return null;
                 });
 
                 if (searchBtn) {
                     await searchBtn.click();
-                    await page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 30000 }).catch(() => console.log('Navigation timeout'));
+                    log(`   → Clicked "Query" button. Waiting for results...`);
+                    await page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 30000 }).catch(() => log('   ⚠️ Navigation timeout (might be AJAX update)'));
                 } else {
-                    console.error('Search button not found');
-                    continue; // Skip this keyword
-                }
-
-                // 4. Process Results
-                // Check if table exists (it might not if no results)
-                const tableExists = await page.$('table.tb_03c');
-                if (!tableExists) {
-                    console.log(`No results for ${subKeyword}`);
+                    log(`   ❌ Error: Search button not found.`);
                     continue;
                 }
 
-                // Get links to details
+                // 4. Process Results
+                const tableExists = await page.$('table.tb_03c');
+                if (!tableExists) {
+                    log(`   ℹ️ No results found for "${subKeyword}".`);
+                    continue;
+                }
+
+                // Get links
                 const tenderLinks = await page.evaluate(() => {
                     const rows = document.querySelectorAll('table.tb_03c tbody tr');
                     const links = [];
@@ -87,15 +101,13 @@ async function searchTenders(keyword, startDate, endDate) {
                     return links;
                 });
 
-                console.log(`Found ${tenderLinks.length} results for ${subKeyword}`);
+                log(`   ✅ Found ${tenderLinks.length} items. Starting extraction...`);
 
-                // Visit each link to scrape details
-                for (const link of tenderLinks) {
-                    // Check duplicate link processing could be added here if link contains ID
-                    // But we will dedupe by ID after scraping
+                // Visit each link
+                for (const [linkIndex, link] of tenderLinks.entries()) {
+                    log(`      processing item ${linkIndex + 1}/${tenderLinks.length}...`);
 
                     const newPage = await browser.newPage();
-                    // Disable images/css for speed
                     await newPage.setRequestInterception(true);
                     newPage.on('request', (req) => {
                         if (['image', 'stylesheet', 'font'].includes(req.resourceType())) req.abort();
@@ -109,12 +121,8 @@ async function searchTenders(keyword, startDate, endDate) {
                             const getText = (label) => {
                                 const ths = Array.from(document.querySelectorAll('th'));
                                 const targetTh = ths.find(th => th.innerText.includes(label));
-                                if (targetTh && targetTh.nextElementSibling) {
-                                    return targetTh.nextElementSibling.innerText.trim();
-                                }
-                                return '';
+                                return (targetTh && targetTh.nextElementSibling) ? targetTh.nextElementSibling.innerText.trim() : '';
                             };
-
                             return {
                                 agencyName: getText('機關名稱'),
                                 tenderId: getText('標案案號'),
@@ -131,20 +139,21 @@ async function searchTenders(keyword, startDate, endDate) {
                             allResults.push(detail);
                         }
                     } catch (e) {
-                        console.error(`Error scraping detail ${link}:`, e.message);
+                        log(`      ⚠️ Error scraping details: ${e.message}`);
                     } finally {
                         await newPage.close();
                     }
-                    // small delay
-                    await new Promise(r => setTimeout(r, 200));
+                    await new Promise(r => setTimeout(r, 100));
                 }
 
             } catch (err) {
-                console.error(`Error processing keyword ${subKeyword}:`, err);
+                log(`   ❌ Error during search for "${subKeyword}": ${err.message}`);
+                console.error(err);
             }
         }
 
-        console.log(`Total unique results: ${allResults.length}`);
+        log(`🎉 Search complete! Total unique results: ${allResults.length}`);
+
 
         // 5. Save to CSV (only if results exist, or empty file)
         const timestamp = new Date().toISOString().replace(/[:.]/g, '-');

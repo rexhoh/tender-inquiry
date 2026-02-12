@@ -22,6 +22,47 @@ if (!fs.existsSync(RESULTS_DIR)) fs.mkdirSync(RESULTS_DIR);
 // API Routes
 
 // 1. Search Endpoint - Triggers immediate search
+// SSE Endpoint for Streaming Search
+app.get('/api/search-stream', (req, res) => {
+    // Set headers for SSE
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.flushHeaders();
+
+    const { keyword, startDate, endDate } = req.query;
+
+    if (!keyword) {
+        res.write(`data: ${JSON.stringify({ type: 'error', message: 'Keyword is required' })}\n\n`);
+        res.end();
+        return;
+    }
+
+    const { searchTenders } = require('./services/scraper');
+
+    searchTenders(keyword, startDate, endDate, (logMessage) => {
+        // Send log message to client
+        res.write(`data: ${JSON.stringify({ type: 'log', message: logMessage })}\n\n`);
+    })
+        .then((results) => {
+            // Send final results
+            res.write(`data: ${JSON.stringify({ type: 'complete', results })}\n\n`);
+            res.end();
+        })
+        .catch((err) => {
+            // Send error
+            res.write(`data: ${JSON.stringify({ type: 'error', message: err.message })}\n\n`);
+            res.end();
+        });
+
+    // Handle client disconnect
+    req.on('close', () => {
+        // Clean up if needed (e.g. stop puppeteer if feasible, though hard to cancel promises mid-flight specific to this req)
+        console.log('Client disconnected from stream');
+    });
+});
+
+// Backward compatibility for existing non-stream calls (if any)
 app.post('/api/search', async (req, res) => {
     try {
         const { keyword, startDate, endDate } = req.body;
