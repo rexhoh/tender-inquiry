@@ -19,4 +19,7 @@
 body {
   @apply bg-background text-foreground;
   font-family: 'Inter', sans-serif;
+  font-size: 18px;
+  /* Increased from default */
+  line-height: 1.6;
 }

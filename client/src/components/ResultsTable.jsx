@@ -44,7 +44,7 @@ const ResultsTable = ({ results }) => {
             </div>
 
             <div className="overflow-x-auto rounded-lg border border-gray-800">
-                <table className="w-full text-left text-sm text-gray-400">
+                <table className="w-full text-left text-base text-gray-400">
                     <thead className="bg-gray-900 text-gray-200 uppercase">
                         <tr>
                             <th scope="col" className="px-6 py-3">機關名稱</th>
