@@ -1,1 +1,4 @@
 node_modules
+*.tar.gz
+google-cloud-sdk/
+.DS_Store
