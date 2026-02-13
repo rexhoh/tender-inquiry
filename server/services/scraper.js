@@ -15,13 +15,20 @@ async function searchTenders(keyword, startDate, endDate, onProgress = () => { }
     log(`Bypassing headless mode check (Verification Mode)`);
 
     const browser = await puppeteer.launch({
-        headless: true, // Keep headless for production, change to false for local debug if needed
-        args: ['--no-sandbox', '--disable-setuid-sandbox', '--window-size=1280,800']
+        headless: true,
+        args: [
+            '--no-sandbox',
+            '--disable-setuid-sandbox',
+            '--window-size=1280,800',
+            '--disable-blink-features=AutomationControlled' // Bypass automation detection
+        ]
     });
 
     try {
         const page = await browser.newPage();
         await page.setViewport({ width: 1280, height: 800 });
+        // Set User-Agent to avoid simple bot detection
+        await page.setUserAgent('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
 
         // Normalize keywords: Split by ' OR ' (case-insensitive)
         const keywords = keyword.split(/\s+OR\s+/i).map(k => k.trim()).filter(k => k);
@@ -36,19 +43,31 @@ async function searchTenders(keyword, startDate, endDate, onProgress = () => { }
             try {
                 // 1. Navigate
                 log(`   → Navigating to Government Tender System...`);
-                await page.goto('https://web.pcc.gov.tw/prkms/tender/common/basic/indexTenderBasic', { waitUntil: 'networkidle2' });
+                // Increase timeout to 60s for slow connections
+                await page.goto('https://web.pcc.gov.tw/prkms/tender/common/basic/indexTenderBasic', { waitUntil: 'load', timeout: 60000 });
+
+                // Debug: Check if navigation succeeded
+                const title = await page.title();
+                log(`   → Page Title: "${title}"`);
 
                 // 2. Fill Search Form
-                const dateRadio = await page.$('#level_23');
-                if (dateRadio) {
-                    await dateRadio.click();
-                    log(`   → Selected "Date Range" search mode.`);
+                try {
+                    const dateRadio = await page.waitForSelector('#level_23', { timeout: 10000 });
+                    if (dateRadio) {
+                        await dateRadio.click();
+                        log(`   → Selected "Date Range" search mode.`);
+                    }
+                } catch (e) {
+                    log(`   ⚠️ Date range radio (#level_23) not found. Page might be different.`);
+                    // Log partial content for debugging
+                    const content = await page.content();
+                    log(`   📝 Page Content Preview: ${content.substring(0, 200)}...`);
                 }
 
                 if (subKeyword) {
                     try {
                         log(`   → Waiting for input field...`);
-                        await page.waitForSelector('#tenderName', { visible: true, timeout: 10000 });
+                        await page.waitForSelector('#tenderName', { visible: true, timeout: 15000 });
 
                         await page.evaluate(() => {
                             const input = document.getElementById('tenderName');
@@ -58,24 +77,28 @@ async function searchTenders(keyword, startDate, endDate, onProgress = () => { }
                         log(`   → Typed keyword: "${subKeyword}"`);
                     } catch (e) {
                         log(`   ⚠️ Failed to find or type in #tenderName: ${e.message}`);
-                        // Take a debug screenshot if possible in verification mode
-                        // await page.screenshot({ path: 'debug_error_input.png' });
+                        continue; // Skip rest of loop if input fails
                     }
                 }
 
                 if (startDate) {
-                    await page.evaluate((date) => { document.getElementById('tenderStartDate').value = date; }, startDate);
-                    log(`   → Set Start Date: ${startDate}`);
+                    try {
+                        await page.evaluate((date) => {
+                            const el = document.getElementById('tenderStartDate');
+                            if (el) el.value = date;
+                        }, startDate);
+                        log(`   → Set Start Date: ${startDate}`);
+                    } catch (e) { log(`   ⚠️ Failed to set Start Date: ${e.message}`); }
                 }
                 if (endDate) {
-                    await page.evaluate((date) => { document.getElementById('tenderEndDate').value = date; }, endDate);
-                    log(`   → Set End Date: ${endDate}`);
+                    try {
+                        await page.evaluate((date) => {
+                            const el = document.getElementById('tenderEndDate');
+                            if (el) el.value = date;
+                        }, endDate);
+                        log(`   → Set End Date: ${endDate}`);
+                    } catch (e) { log(`   ⚠️ Failed to set End Date: ${e.message}`); }
                 }
-
-                // Debug: Screenshot before search
-                // const debugDir = path.join(__dirname, '../../public/debug');
-                // if (!fs.existsSync(debugDir)) fs.mkdirSync(debugDir, { recursive: true });
-                // await page.screenshot({ path: path.join(debugDir, `before_search_${index}.png`) });
 
                 // 3. Submit Search
                 const searchBtn = await page.evaluateHandle(() => {
