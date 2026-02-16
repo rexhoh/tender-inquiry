@@ -15,12 +15,16 @@ async function searchTenders(keyword, startDate, endDate, onProgress = () => { }
     log(`Bypassing headless mode check (Verification Mode)`);
 
     const browser = await puppeteer.launch({
-        headless: true,
+        headless: "new",
         args: [
             '--no-sandbox',
             '--disable-setuid-sandbox',
-            '--window-size=1280,800',
-            '--disable-blink-features=AutomationControlled' // Bypass automation detection
+            '--disable-dev-shm-usage',
+            '--disable-accelerated-2d-canvas',
+            '--no-first-run',
+            '--no-zygote',
+            '--disable-gpu',
+            '--disable-blink-features=AutomationControlled'
         ]
     });
 
