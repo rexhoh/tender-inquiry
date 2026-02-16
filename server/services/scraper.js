@@ -170,6 +170,14 @@ async function searchTenders(keyword, startDate, endDate, onProgress = () => { }
 
                         const newPage = await browser.newPage();
 
+                        // Re-enable request interception (it's faster and safer for direct link)
+                        await newPage.setRequestInterception(true);
+                        newPage.on('request', (req) => {
+                            const rType = req.resourceType();
+                            if (['image', 'media', 'font', 'stylesheet'].includes(rType)) req.abort();
+                            else req.continue();
+                        });
+
                         try {
                             // Set Referer to simulate coming from the list
                             await newPage.setExtraHTTPHeaders({
@@ -181,14 +189,13 @@ async function searchTenders(keyword, startDate, endDate, onProgress = () => { }
 
                             // Wait for the *real* content to load
                             try {
-                                await newPage.waitForFunction(() => {
-                                    return document.body.innerText.includes('機關名稱') || document.body.innerText.includes('標案名稱');
-                                }, { timeout: 30000 });
+                                // Wait for the specific table header class used in detail pages
+                                await newPage.waitForSelector('td.tbg_1', { visible: true, timeout: 30000 });
                             } catch (waitError) {
-                                log(`      ⚠️ Timeout waiting for detail content. Final URL: ${newPage.url()}`);
+                                log(`      ⚠️ Timeout waiting for detail content (td.tbg_1). Final URL: ${newPage.url()}`);
                                 // Dump content to see where we are stuck
                                 const content = await newPage.content();
-                                log(`      📄 Stuck Page Dump: ${content.substring(0, 500)}...`);
+                                log(`      📄 Stuck Page Dump (first 2000 chars): ${content.substring(0, 2000)}...`);
                             }
 
                             const detail = await newPage.evaluate(() => {
