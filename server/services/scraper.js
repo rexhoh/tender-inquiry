@@ -113,7 +113,14 @@ async function searchTenders(keyword, startDate, endDate, onProgress = () => { }
                     if (searchBtn) {
                         log(`   → Clicked "Query" button. Waiting for results...`);
                         await Promise.all([
-                            page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 60000 }),
+                            // Wait for either results or "No Data" message
+                            page.waitForFunction(() => {
+                                // Success: A link with "View" or "檢視" exists
+                                const hasResult = !!document.querySelector('a[title="檢視標案詳細內容"]');
+                                // Success (Empty): "無符合條件" message exists
+                                const hasNoResult = document.body.innerText.includes('無符合條件') || document.body.innerText.includes('查無資料');
+                                return hasResult || hasNoResult;
+                            }, { timeout: 60000 }),
                             searchBtn.click(),
                         ]);
                     } else {
@@ -122,7 +129,6 @@ async function searchTenders(keyword, startDate, endDate, onProgress = () => { }
                     }
                 } catch (navError) {
                     log(`   ⚠️ Navigation warning: ${navError.message}. Checking if results loaded anyway...`);
-                    // Sometimes networkidle2 times out but page is loaded. Continue to check results.
                 }
 
                 // 4. Process Results & Pagination
@@ -132,36 +138,30 @@ async function searchTenders(keyword, startDate, endDate, onProgress = () => { }
                 while (hasNextPage) {
                     log(`   📄 Processing Page ${pageCount}...`);
 
-                    const tableExists = await page.$('table.tb_03c');
-                    if (!tableExists) {
-                        log(`   ℹ️ No results table found.`);
-                        hasNextPage = false;
-                        break;
-                    }
-
                     // Get links (with debug)
                     const { links: tenderLinks, firstRowHtml } = await page.evaluate(() => {
                         const rows = Array.from(document.querySelectorAll('table.tb_03c tbody tr'));
-                        // Skip header (th) or empty rows
-                        const dataRows = rows.filter(r => r.querySelector('td'));
 
                         const links = [];
-                        dataRows.forEach(row => {
+                        let firstValidRowHtml = '';
+
+                        rows.forEach(row => {
+                            // SKIP rows that are part of the search form (look like inputs)
+                            if (row.querySelector('input') || row.querySelector('select')) return;
+
                             // Try multiple selectors for the "View" button
                             let link = row.querySelector('a[title="檢視標案詳細內容"]');
                             if (!link) link = row.querySelector('a[href*="tender/common/unit/tenderDetail"]'); // URL pattern
-                            if (!link) {
-                                // Fallback: Check for any link with "檢視" text
-                                const allLinks = Array.from(row.querySelectorAll('a'));
-                                link = allLinks.find(a => a.innerText.includes('檢視') || a.innerText.includes('View'));
-                            }
 
-                            if (link) links.push(link.href);
+                            if (link) {
+                                links.push(link.href);
+                                if (!firstValidRowHtml) firstValidRowHtml = row.outerHTML;
+                            }
                         });
 
                         return {
                             links,
-                            firstRowHtml: dataRows.length > 0 ? dataRows[0].outerHTML : 'No data rows found'
+                            firstRowHtml: firstValidRowHtml || (rows.length > 0 ? rows[0].outerHTML : 'No rows found')
                         };
                     });
 
