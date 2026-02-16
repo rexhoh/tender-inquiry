@@ -99,24 +99,37 @@ async function searchTenders(keyword, startDate, endDate, onProgress = () => { }
                 const rocStartDate = toROCDate(startDate);
                 const rocEndDate = toROCDate(endDate);
 
+                // Function to robustly type into an input field (clearing it first)
+                const typeInField = async (selector, value) => {
+                    await page.click(selector, { clickCount: 3 }); // Select all
+                    await page.keyboard.press('Backspace'); // Clear
+                    await page.type(selector, value, { delay: 100 }); // Type slow
+                    await page.keyboard.press('Tab'); // Trigger blur
+                };
+
                 if (rocStartDate) {
                     try {
-                        await page.evaluate((date) => {
-                            const el = document.getElementById('tenderStartDate');
-                            if (el) el.value = date;
-                        }, rocStartDate);
-                        log(`   → Set Start Date: ${rocStartDate} (Original: ${startDate})`);
+                        log(`   → Typing Start Date: ${rocStartDate}...`);
+                        await typeInField('#tenderStartDate', rocStartDate);
                     } catch (e) { log(`   ⚠️ Failed to set Start Date: ${e.message}`); }
                 }
                 if (rocEndDate) {
                     try {
-                        await page.evaluate((date) => {
-                            const el = document.getElementById('tenderEndDate');
-                            if (el) el.value = date;
-                        }, rocEndDate);
-                        log(`   → Set End Date: ${rocEndDate} (Original: ${endDate})`);
+                        log(`   → Typing End Date: ${rocEndDate}...`);
+                        await typeInField('#tenderEndDate', rocEndDate);
                     } catch (e) { log(`   ⚠️ Failed to set End Date: ${e.message}`); }
                 }
+
+                // Verify inputs before searching
+                const inputValues = await page.evaluate(() => {
+                    return {
+                        name: document.getElementById('tenderName')?.value,
+                        start: document.getElementById('tenderStartDate')?.value,
+                        end: document.getElementById('tenderEndDate')?.value,
+                        radio: document.getElementById('level_23')?.checked
+                    };
+                });
+                log(`   📝 Pre-check: Name="${inputValues.name}", Start="${inputValues.start}", End="${inputValues.end}", DateRangeChecked=${inputValues.radio}`);
 
                 // 3. Submit Search
                 try {
