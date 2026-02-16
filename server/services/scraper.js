@@ -152,32 +152,12 @@ async function searchTenders(keyword, startDate, endDate, onProgress = () => { }
                     // Visit each link (using a separate page to avoid destroying main page context)
                     for (const [linkIndex, link] of tenderLinks.entries()) {
 
-                        // Construct Direct Detail URL to bypass the "urlSelector" redirection page
-                        // Original: https://web.pcc.gov.tw/prkms/urlSelector/common/tpam?pk=NzExNTE1Mjk=
-                        // Target:   https://web.pcc.gov.tw/tps/QueryTender/query/searchTenderDetail?pkPmsMain=NzExNTE1Mjk=
-                        let directLink = link;
-                        try {
-                            const urlObj = new URL(link);
-                            const pk = urlObj.searchParams.get('pk');
-                            if (pk) {
-                                directLink = `https://web.pcc.gov.tw/tps/QueryTender/query/searchTenderDetail?pkPmsMain=${pk}`;
-                            }
-                        } catch (e) {
-                            log(`      ⚠️ Error parsing link PK: ${e.message}, using original link.`);
-                        }
-
-                        if (linkIndex < 3) log(`      processing item ${linkIndex + 1}/${tenderLinks.length}: ${directLink} (Original: ${link})`);
+                        if (linkIndex < 3) log(`      processing item ${linkIndex + 1}/${tenderLinks.length}: ${link}`);
 
                         const newPage = await browser.newPage();
 
-                        // IMPORTANT: Do not block scripts on the detail page, as it uses JS to redirect
-                        await newPage.setRequestInterception(true);
-                        newPage.on('request', (req) => {
-                            const rType = req.resourceType();
-                            // Only block heavy media, keep scripts and styles for redirect/layout
-                            if (['image', 'media', 'font'].includes(rType)) req.abort();
-                            else req.continue();
-                        });
+                        // Disable request interception to ensure redirects and cookies work perfectly
+                        // await newPage.setRequestInterception(true); 
 
                         try {
                             // Set Referer to simulate coming from the list
@@ -185,16 +165,16 @@ async function searchTenders(keyword, startDate, endDate, onProgress = () => { }
                                 'Referer': 'https://web.pcc.gov.tw/prkms/tender/common/basic/indexTenderBasic'
                             });
 
-                            // Navigate directly to the final detail page
-                            await newPage.goto(directLink, { waitUntil: 'domcontentloaded', timeout: 30000 });
+                            // Navigate to the link (Puppeteer should handle 303 redirects automatically)
+                            await newPage.goto(link, { waitUntil: 'domcontentloaded', timeout: 60000 });
 
-                            // Wait for content
+                            // Wait for the *real* content to load after potential redirect
                             try {
                                 await newPage.waitForFunction(() => {
                                     return document.body.innerText.includes('機關名稱') || document.body.innerText.includes('標案名稱');
-                                }, { timeout: 15000 });
+                                }, { timeout: 30000 });
                             } catch (waitError) {
-                                log(`      ⚠️ Timeout waiting for detail content. URL: ${newPage.url()}`);
+                                log(`      ⚠️ Timeout waiting for detail content. Final URL: ${newPage.url()}`);
                             }
 
                             const detail = await newPage.evaluate(() => {
