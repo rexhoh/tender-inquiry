@@ -81,22 +81,40 @@ async function searchTenders(keyword, startDate, endDate, onProgress = () => { }
                     }
                 }
 
-                if (startDate) {
+                // Helper to convert Gregorian Date (YYYY/MM/DD) to ROC Date (YYY/MM/DD)
+                const toROCDate = (dateStr) => {
+                    if (!dateStr) return '';
+                    const parts = dateStr.split(/[-/]/);
+                    if (parts.length === 3) {
+                        const year = parseInt(parts[0]);
+                        // If year is already 3 digits (e.g. 115), assume it's ROC
+                        if (year < 1000) return parts.join('/');
+                        // Convert 2026 -> 115
+                        const rocYear = year - 1911;
+                        return `${rocYear}/${parts[1]}/${parts[2]}`;
+                    }
+                    return dateStr;
+                };
+
+                const rocStartDate = toROCDate(startDate);
+                const rocEndDate = toROCDate(endDate);
+
+                if (rocStartDate) {
                     try {
                         await page.evaluate((date) => {
                             const el = document.getElementById('tenderStartDate');
                             if (el) el.value = date;
-                        }, startDate);
-                        log(`   → Set Start Date: ${startDate}`);
+                        }, rocStartDate);
+                        log(`   → Set Start Date: ${rocStartDate} (Original: ${startDate})`);
                     } catch (e) { log(`   ⚠️ Failed to set Start Date: ${e.message}`); }
                 }
-                if (endDate) {
+                if (rocEndDate) {
                     try {
                         await page.evaluate((date) => {
                             const el = document.getElementById('tenderEndDate');
                             if (el) el.value = date;
-                        }, endDate);
-                        log(`   → Set End Date: ${endDate}`);
+                        }, rocEndDate);
+                        log(`   → Set End Date: ${rocEndDate} (Original: ${endDate})`);
                     } catch (e) { log(`   ⚠️ Failed to set End Date: ${e.message}`); }
                 }
 
@@ -116,7 +134,8 @@ async function searchTenders(keyword, startDate, endDate, onProgress = () => { }
                             // Wait for either results or "No Data" message
                             page.waitForFunction(() => {
                                 // Success: A link with "View" or "檢視" exists
-                                const hasResult = !!document.querySelector('a[title="檢視標案詳細內容"]');
+                                const hasResult = !!document.querySelector('a[title="檢視標案詳細內容"]') ||
+                                    Array.from(document.querySelectorAll('a')).some(a => a.innerText.includes('檢視') && a.href.includes('tenderDetail'));
                                 // Success (Empty): "無符合條件" message exists
                                 const hasNoResult = document.body.innerText.includes('無符合條件') || document.body.innerText.includes('查無資料');
                                 return hasResult || hasNoResult;
@@ -138,20 +157,33 @@ async function searchTenders(keyword, startDate, endDate, onProgress = () => { }
                 while (hasNextPage) {
                     log(`   📄 Processing Page ${pageCount}...`);
 
-                    // Get links (with debug)
+                    // Get links (with debug and smart table selection)
                     const { links: tenderLinks, firstRowHtml } = await page.evaluate(() => {
-                        const rows = Array.from(document.querySelectorAll('table.tb_03c tbody tr'));
+                        // Find the results table by checking headers
+                        const tables = Array.from(document.querySelectorAll('table'));
+                        const resultsTable = tables.find(t => {
+                            const tx = t.innerText;
+                            return tx.includes('機關名稱') && tx.includes('標案名稱') && tx.includes('功能選項');
+                        });
 
+                        if (!resultsTable) {
+                            return { links: [], firstRowHtml: 'Results table not found' };
+                        }
+
+                        const rows = Array.from(resultsTable.querySelectorAll('tbody tr'));
                         const links = [];
                         let firstValidRowHtml = '';
 
                         rows.forEach(row => {
-                            // SKIP rows that are part of the search form (look like inputs)
-                            if (row.querySelector('input') || row.querySelector('select')) return;
-
                             // Try multiple selectors for the "View" button
                             let link = row.querySelector('a[title="檢視標案詳細內容"]');
                             if (!link) link = row.querySelector('a[href*="tender/common/unit/tenderDetail"]'); // URL pattern
+
+                            if (!link) {
+                                // Fallback: Check for any link with "檢視" text specific to this row
+                                const allLinks = Array.from(row.querySelectorAll('a'));
+                                link = allLinks.find(a => a.innerText.includes('檢視') || a.innerText.includes('View'));
+                            }
 
                             if (link) {
                                 links.push(link.href);
@@ -161,7 +193,7 @@ async function searchTenders(keyword, startDate, endDate, onProgress = () => { }
 
                         return {
                             links,
-                            firstRowHtml: firstValidRowHtml || (rows.length > 0 ? rows[0].outerHTML : 'No rows found')
+                            firstRowHtml: firstValidRowHtml || (rows.length > 0 ? rows[0].outerHTML : 'No rows with valid links found')
                         };
                     });
 
