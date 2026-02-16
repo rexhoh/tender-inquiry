@@ -57,34 +57,43 @@ async function searchTenders(keyword, startDate, endDate, onProgress = () => { }
 
             try {
                 // 1. Construct Search URL (Bypass UI interaction)
-                const rocStartDate = toROCDate(startDate);
-                const rocEndDate = toROCDate(endDate);
+                // Based on user's working URL, the server accepts Gregorian dates in the URL parameters.
+                // URL: ...tenderStartDate=2026%2F01%2F15...
 
                 // Encode parameters
                 const encodedKeyword = encodeURIComponent(subKeyword);
-                const encodedStart = encodeURIComponent(rocStartDate);
-                const encodedEnd = encodeURIComponent(rocEndDate);
+                const encodedStart = encodeURIComponent(startDate); // Use original '2026/01/15'
+                const encodedEnd = encodeURIComponent(endDate);
 
                 const searchUrl = `https://web.pcc.gov.tw/prkms/tender/common/basic/readTenderBasic?pageSize=&firstSearch=true&searchType=basic&isBinding=N&isLogIn=N&level_1=on&orgName=&orgId=&tenderName=${encodedKeyword}&tenderId=&tenderType=TENDER_DECLARATION&tenderWay=TENDER_WAY_ALL_DECLARATION&dateType=isDate&tenderStartDate=${encodedStart}&tenderEndDate=${encodedEnd}&radProctrgCate=&policyAdvocacy=`;
 
                 log(`   → Navigating directly to search results: ${searchUrl}`);
 
-                await Promise.all([
-                    // Wait for either results or "No Data" message
-                    page.waitForFunction(() => {
-                        // Success: A link with "View" or "檢視" exists
-                        const hasResult = !!document.querySelector('a[title="檢視標案詳細內容"]') ||
-                            Array.from(document.querySelectorAll('a')).some(a => a.innerText.includes('檢視') && a.href.includes('tenderDetail'));
-                        // Success (Empty): "無符合條件" message exists
-                        const hasNoResult = document.body.innerText.includes('無符合條件') || document.body.innerText.includes('查無資料');
-                        return hasResult || hasNoResult;
-                    }, { timeout: 60000 }),
-                    page.goto(searchUrl, { waitUntil: 'networkidle2' })
-                ]);
+                // Set Referer to fool potential checks
+                await page.setExtraHTTPHeaders({
+                    'Referer': 'https://web.pcc.gov.tw/prkms/tender/common/basic/indexTenderBasic'
+                });
+
+                try {
+                    await page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 60000 });
+
+                    // Wait for a clear signal of page load (results OR "no data" OR error)
+                    // We interpret "body" presence as "loaded enough to inspect"
+                    await page.waitForSelector('body', { timeout: 30000 });
+
+                    // Diagnostic Log: Check what we actually got
+                    const pageTitle = await page.title();
+                    const bodyText = await page.evaluate(() => document.body.innerText.substring(0, 300).replace(/\n/g, ' '));
+                    log(`   🔍 Page Loaded. Title: "${pageTitle}"`);
+                    log(`   📝 Body Preview: "${bodyText}..."`);
+
+                } catch (navError) {
+                    log(`   ❌ Navigation/Wait Error: ${navError.message}`);
+                    const content = await page.content();
+                    log(`   📄 HTML Dump (Error): ${content.substring(0, 500)}...`);
+                }
 
                 // 2. Process Results & Pagination
-                // (Skip UI form filling and button clicking logic)
-
                 let hasNextPage = true;
                 let pageCount = 1;
 
@@ -101,7 +110,7 @@ async function searchTenders(keyword, startDate, endDate, onProgress = () => { }
                         });
 
                         if (!resultsTable) {
-                            return { links: [], firstRowHtml: 'Results table not found' };
+                            return { links: [], firstRowHtml: document.body.innerHTML.substring(0, 1000) }; // Dump body if table missing
                         }
 
                         const rows = Array.from(resultsTable.querySelectorAll('tbody tr'));
@@ -109,6 +118,9 @@ async function searchTenders(keyword, startDate, endDate, onProgress = () => { }
                         let firstValidRowHtml = '';
 
                         rows.forEach(row => {
+                            // SKIP rows that are part of the search form (look like inputs)
+                            if (row.querySelector('input') || row.querySelector('select')) return;
+
                             // Try multiple selectors for the "View" button
                             let link = row.querySelector('a[title="檢視標案詳細內容"]');
                             if (!link) link = row.querySelector('a[href*="tender/common/unit/tenderDetail"]'); // URL pattern
