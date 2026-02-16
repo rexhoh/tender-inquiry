@@ -2,6 +2,8 @@ const puppeteer = require('puppeteer');
 const fs = require('fs');
 const path = require('path');
 const { createObjectCsvWriter } = require('csv-writer');
+const axios = require('axios');
+const cheerio = require('cheerio');
 
 const RESULTS_DIR = path.join(__dirname, '../data/results');
 
