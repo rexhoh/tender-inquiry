@@ -1,3 +1,15 @@
+// Polyfill for File API (needed for some Node 18 environments / undici)
+if (typeof File === 'undefined') {
+    class File extends Blob {
+        constructor(fileBits, fileName, options) {
+            super(fileBits, options);
+            this.name = fileName;
+            this.lastModified = options?.lastModified || Date.now();
+        }
+    }
+    global.File = File;
+}
+
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
