@@ -231,6 +231,13 @@ async function searchTenders(keyword, startDate, endDate, onProgress = () => { }
                             let contactPhone = findValue('聯絡電話', 'Telephone No.');
                             detail.contact = `${contactName} ${contactPhone}`.trim();
 
+                            // Diagnostics: If we didn't find key data, log what we DID find
+                            if (!detail.agencyName || !detail.tenderId) {
+                                const pageTitle = $('title').text().trim();
+                                const bodySnippet = $('body').text().replace(/\s+/g, ' ').substring(0, 200);
+                                if (linkIndex < 5) log(`      ⚠️ Empty Data [${directLink}]. Title: "${pageTitle}", Body: "${bodySnippet}..."`);
+                            }
+
                             if (linkIndex === 0) {
                                 log(`      🔍 Debug Detail [0] (Cheerio): ${JSON.stringify(detail)}`);
                             }
