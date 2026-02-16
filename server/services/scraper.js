@@ -101,89 +101,136 @@ async function searchTenders(keyword, startDate, endDate, onProgress = () => { }
                 }
 
                 // 3. Submit Search
-                const searchBtn = await page.evaluateHandle(() => {
-                    const elements = document.querySelectorAll('div.bt_cen2, button, input[type="button"]');
-                    for (let el of elements) {
-                        if ((el.innerText || '').includes('查詢') || (el.value || '').includes('查詢')) return el;
+                try {
+                    const searchBtn = await page.evaluateHandle(() => {
+                        const elements = document.querySelectorAll('div.bt_cen2, button, input[type="button"]');
+                        for (let el of elements) {
+                            if ((el.innerText || '').includes('查詢') || (el.value || '').includes('查詢')) return el;
+                        }
+                        return null;
+                    });
+
+                    if (searchBtn) {
+                        log(`   → Clicked "Query" button. Waiting for results...`);
+                        await Promise.all([
+                            page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 60000 }),
+                            searchBtn.click(),
+                        ]);
+                    } else {
+                        log(`   ❌ Error: Search button not found.`);
+                        continue;
                     }
-                    return null;
-                });
-
-                if (searchBtn) {
-                    await searchBtn.click();
-                    log(`   → Clicked "Query" button. Waiting for results...`);
-                    await page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 30000 }).catch(() => log('   ⚠️ Navigation timeout (might be AJAX update)'));
-                } else {
-                    log(`   ❌ Error: Search button not found.`);
-                    continue;
+                } catch (navError) {
+                    log(`   ⚠️ Navigation warning: ${navError.message}. Checking if results loaded anyway...`);
+                    // Sometimes networkidle2 times out but page is loaded. Continue to check results.
                 }
 
-                // 4. Process Results
-                const tableExists = await page.$('table.tb_03c');
-                if (!tableExists) {
-                    log(`   ℹ️ No results found for "${subKeyword}".`);
-                    continue;
-                }
+                // 4. Process Results & Pagination
+                let hasNextPage = true;
+                let pageCount = 1;
 
-                // Get links
-                const tenderLinks = await page.evaluate(() => {
-                    const rows = document.querySelectorAll('table.tb_03c tbody tr');
-                    const links = [];
-                    rows.forEach(row => {
-                        const link = row.querySelector('a[title="檢視標案詳細內容"]');
-                        if (link) links.push(link.href);
-                    });
-                    return links;
-                });
+                while (hasNextPage) {
+                    log(`   📄 Processing Page ${pageCount}...`);
 
-                log(`   ✅ Found ${tenderLinks.length} items. Starting extraction...`);
+                    const tableExists = await page.$('table.tb_03c');
+                    if (!tableExists) {
+                        log(`   ℹ️ No results table found.`);
+                        hasNextPage = false;
+                        break;
+                    }
 
-                // Visit each link
-                for (const [linkIndex, link] of tenderLinks.entries()) {
-                    log(`      processing item ${linkIndex + 1}/${tenderLinks.length}...`);
-
-                    const newPage = await browser.newPage();
-                    await newPage.setRequestInterception(true);
-                    newPage.on('request', (req) => {
-                        if (['image', 'stylesheet', 'font'].includes(req.resourceType())) req.abort();
-                        else req.continue();
+                    // Get links
+                    const tenderLinks = await page.evaluate(() => {
+                        const rows = document.querySelectorAll('table.tb_03c tbody tr');
+                        const links = [];
+                        rows.forEach(row => {
+                            const link = row.querySelector('a[title="檢視標案詳細內容"]');
+                            if (link) links.push(link.href);
+                        });
+                        return links;
                     });
 
-                    try {
-                        await newPage.goto(link, { waitUntil: 'domcontentloaded', timeout: 30000 });
+                    log(`      Found ${tenderLinks.length} items on this page. Extraction...`);
 
-                        const detail = await newPage.evaluate(() => {
-                            const getText = (label) => {
-                                const ths = Array.from(document.querySelectorAll('th'));
-                                const targetTh = ths.find(th => th.innerText.includes(label));
-                                return (targetTh && targetTh.nextElementSibling) ? targetTh.nextElementSibling.innerText.trim() : '';
-                            };
-                            return {
-                                agencyName: getText('機關名稱'),
-                                tenderId: getText('標案案號'),
-                                tenderName: getText('標案名稱'),
-                                budget: getText('預算金額'),
-                                centralGov: getText('本採購是否屬中央政府計畫型案件'),
-                                location: getText('履約地點'),
-                                contact: getText('聯絡人')
-                            };
+                    // Visit each link (using a separate page to avoid destroying main page context)
+                    for (const [linkIndex, link] of tenderLinks.entries()) {
+                        // log(`      processing item ${linkIndex + 1}/${tenderLinks.length}...`); // Reduce noise
+                        const newPage = await browser.newPage();
+                        await newPage.setRequestInterception(true);
+                        newPage.on('request', (req) => {
+                            // Block images/css/fonts to speed up detail page loading
+                            const rType = req.resourceType();
+                            if (['image', 'stylesheet', 'font', 'media'].includes(rType)) req.abort();
+                            else req.continue();
                         });
 
-                        if (detail.tenderId && !seenTenderIds.has(detail.tenderId)) {
-                            seenTenderIds.add(detail.tenderId);
-                            allResults.push(detail);
+                        try {
+                            await newPage.goto(link, { waitUntil: 'domcontentloaded', timeout: 30000 });
+
+                            const detail = await newPage.evaluate(() => {
+                                const getText = (label) => {
+                                    const ths = Array.from(document.querySelectorAll('th'));
+                                    const targetTh = ths.find(th => th.innerText.includes(label));
+                                    return (targetTh && targetTh.nextElementSibling) ? targetTh.nextElementSibling.innerText.trim() : '';
+                                };
+                                return {
+                                    agencyName: getText('機關名稱'),
+                                    tenderId: getText('標案案號'),
+                                    tenderName: getText('標案名稱'),
+                                    budget: getText('預算金額'),
+                                    centralGov: getText('本採購是否屬中央政府計畫型案件'),
+                                    location: getText('履約地點'),
+                                    contact: getText('聯絡人')
+                                };
+                            });
+
+                            if (detail.tenderId && !seenTenderIds.has(detail.tenderId)) {
+                                seenTenderIds.add(detail.tenderId);
+                                allResults.push(detail);
+                            }
+                        } catch (e) {
+                            log(`      ⚠️ Error scraping detail: ${e.message}`);
+                        } finally {
+                            await newPage.close();
                         }
-                    } catch (e) {
-                        log(`      ⚠️ Error scraping details: ${e.message}`);
-                    } finally {
-                        await newPage.close();
+                        // Small delay to be nice
+                        await new Promise(r => setTimeout(r, 50));
                     }
-                    await new Promise(r => setTimeout(r, 100));
+
+                    // Check for Next Page
+                    const nextPageBtn = await page.evaluateHandle(() => {
+                        // Look for "Next Page" or "下一頁" link/button
+                        const links = Array.from(document.querySelectorAll('a, span.page'));
+                        return links.find(el => el.innerText.includes('下一頁') || el.innerText.includes('Next'));
+                    });
+
+                    // Evaluate if the button is clickable/exists
+                    const canClickNext = await page.evaluate(el => el && !el.className.includes('disabled') && el.href, nextPageBtn);
+
+                    if (canClickNext) {
+                        try {
+                            log(`   → Navigating to next page...`);
+                            await Promise.all([
+                                page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 60000 }),
+                                nextPageBtn.click()
+                            ]);
+                            pageCount++;
+                        } catch (e) {
+                            log(`   ⚠️ Failed to go to next page: ${e.message}`);
+                            hasNextPage = false;
+                        }
+                    } else {
+                        hasNextPage = false;
+                    }
                 }
+
+                log(`   ✅ Finished processing keyword "${subKeyword}".`);
 
             } catch (err) {
                 log(`   ❌ Error during search for "${subKeyword}": ${err.message}`);
                 console.error(err);
+                // Recover browser context if needed (try to go back to search page for next keyword)
+                try { await page.goto('https://web.pcc.gov.tw/prkms/tender/common/basic/indexTenderBasic'); } catch (e) { }
             }
         }
 
