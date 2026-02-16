@@ -151,7 +151,8 @@ async function searchTenders(keyword, startDate, endDate, onProgress = () => { }
 
                     // Visit each link (using a separate page to avoid destroying main page context)
                     for (const [linkIndex, link] of tenderLinks.entries()) {
-                        // log(`      processing item ${linkIndex + 1}/${tenderLinks.length}...`); // Reduce noise
+                        if (linkIndex < 3) log(`      processing item ${linkIndex + 1}/${tenderLinks.length}: ${link}`); // Log first few links
+
                         const newPage = await browser.newPage();
                         await newPage.setRequestInterception(true);
                         newPage.on('request', (req) => {
@@ -162,6 +163,11 @@ async function searchTenders(keyword, startDate, endDate, onProgress = () => { }
                         });
 
                         try {
+                            // Set Referer for detail page too
+                            await newPage.setExtraHTTPHeaders({
+                                'Referer': 'https://web.pcc.gov.tw/prkms/tender/common/basic/indexTenderBasic'
+                            });
+
                             await newPage.goto(link, { waitUntil: 'domcontentloaded', timeout: 30000 });
 
                             const detail = await newPage.evaluate(() => {
@@ -184,6 +190,15 @@ async function searchTenders(keyword, startDate, endDate, onProgress = () => { }
                                     contact: getText('聯絡人')
                                 };
                             });
+
+                            // Debug first item extraction
+                            if (linkIndex === 0) {
+                                log(`      🔍 Debug Detail [0]: ${JSON.stringify(detail)}`);
+                                if (!detail.tenderId) {
+                                    const content = await newPage.content();
+                                    log(`      📄 Detail Page Dump: ${content.substring(0, 500)}...`);
+                                }
+                            }
 
                             if (detail.tenderId && !seenTenderIds.has(detail.tenderId)) {
                                 seenTenderIds.add(detail.tenderId);
