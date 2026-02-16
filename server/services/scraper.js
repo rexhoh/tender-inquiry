@@ -173,29 +173,22 @@ async function searchTenders(keyword, startDate, endDate, onProgress = () => { }
                     // Visit each link using the reusable Puppeteer page
                     for (const [linkIndex, link] of tenderLinks.entries()) {
 
-                        // Construct Direct Detail URL to bypass the "urlSelector" redirection page
-                        // Original: https://web.pcc.gov.tw/prkms/urlSelector/common/tpam?pk=NzExNTE1Mjk=
-                        // Target:   https://web.pcc.gov.tw/tps/QueryTender/query/searchTenderDetail?pkPmsMain=${pk}
-                        let directLink = link;
-                        try {
-                            const urlObj = new URL(link);
-                            const pk = urlObj.searchParams.get('pk');
-                            if (pk) {
-                                directLink = `https://web.pcc.gov.tw/tps/QueryTender/query/searchTenderDetail?pkPmsMain=${pk}`;
-                            }
-                        } catch (e) {
-                            log(`      ⚠️ Error parsing link PK: ${e.message}, using original link.`);
-                        }
-
-                        if (linkIndex < 3) log(`      processing item ${linkIndex + 1}/${tenderLinks.length}: ${directLink}`);
+                        // Use the ORIGINAL link to follow proper redirection flow (avoid guessing URL params)
+                        if (linkIndex < 3) log(`      processing item ${linkIndex + 1}/${tenderLinks.length}: ${link}`);
 
                         try {
-                            // Navigate the reusable page
-                            await detailPage.goto(directLink, { waitUntil: 'domcontentloaded', timeout: 60000 });
+                            // Navigate the reusable page with correct Referer
+                            // Link: https://web.pcc.gov.tw/prkms/urlSelector/common/tpam?pk=...
+                            await detailPage.goto(link, {
+                                waitUntil: 'domcontentloaded',
+                                timeout: 60000,
+                                referer: 'https://web.pcc.gov.tw/prkms/tender/common/basic/readTenderBasic'
+                            });
 
                             // Wait for the *real* content to load (the table header class)
+                            // The urlSelector page will redirect to searchTenderDetail
                             try {
-                                await detailPage.waitForSelector('td.tbg_1', { visible: true, timeout: 30000 });
+                                await detailPage.waitForSelector('td.tbg_1', { visible: true, timeout: 45000 });
                             } catch (waitError) {
                                 log(`      ⚠️ Timeout waiting for detail content (td.tbg_1). Final URL: ${detailPage.url()}`);
                                 // Dump content to see where we are stuck (JS check page?)
