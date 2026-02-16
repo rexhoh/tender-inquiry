@@ -154,21 +154,33 @@ async function searchTenders(keyword, startDate, endDate, onProgress = () => { }
                         if (linkIndex < 3) log(`      processing item ${linkIndex + 1}/${tenderLinks.length}: ${link}`); // Log first few links
 
                         const newPage = await browser.newPage();
+
+                        // IMPORTANT: Do not block scripts on the detail page, as it uses JS to redirect
                         await newPage.setRequestInterception(true);
                         newPage.on('request', (req) => {
-                            // Block images/css/fonts/scripts to speed up detail page loading
                             const rType = req.resourceType();
-                            if (['image', 'stylesheet', 'font', 'media', 'script'].includes(rType)) req.abort();
+                            // Only block heavy media, keep scripts and styles for redirect/layout
+                            if (['image', 'media', 'font'].includes(rType)) req.abort();
                             else req.continue();
                         });
 
                         try {
-                            // Set Referer for detail page too
+                            // Set Referer to simulate coming from the list
                             await newPage.setExtraHTTPHeaders({
                                 'Referer': 'https://web.pcc.gov.tw/prkms/tender/common/basic/indexTenderBasic'
                             });
 
+                            // Navigate and wait for potential redirect
                             await newPage.goto(link, { waitUntil: 'domcontentloaded', timeout: 30000 });
+
+                            // Wait for the *real* content to load after redirect (look for agency name label)
+                            try {
+                                await newPage.waitForFunction(() => {
+                                    return document.body.innerText.includes('機關名稱') || document.body.innerText.includes('標案名稱');
+                                }, { timeout: 15000 });
+                            } catch (waitError) {
+                                log(`      ⚠️ Timeout waiting for detail content (might be on intermediate page). URL: ${newPage.url()}`);
+                            }
 
                             const detail = await newPage.evaluate(() => {
                                 const getText = (label) => {
@@ -193,7 +205,7 @@ async function searchTenders(keyword, startDate, endDate, onProgress = () => { }
 
                             // Debug first item extraction
                             if (linkIndex === 0) {
-                                log(`      🔍 Debug Detail [0]: ${JSON.stringify(detail)}`);
+                                log(`      🔍 Debug Detail [0] (Final URL: ${newPage.url()}): ${JSON.stringify(detail)}`);
                                 if (!detail.tenderId) {
                                     const content = await newPage.content();
                                     log(`      📄 Detail Page Dump: ${content.substring(0, 500)}...`);
