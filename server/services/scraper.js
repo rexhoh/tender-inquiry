@@ -175,14 +175,15 @@ async function searchTenders(keyword, startDate, endDate, onProgress = () => { }
                         if (linkIndex < 3) log(`      processing item ${linkIndex + 1}/${tenderLinks.length}: ${directLink} (Original: ${link})`);
 
                         try {
-                            // Add a small random delay to be polite
-                            await new Promise(r => setTimeout(r, 100 + Math.random() * 200));
+                            // Add a random delay to be polite and avoid rate limits (500ms - 1000ms)
+                            await new Promise(r => setTimeout(r, 500 + Math.random() * 500));
 
                             // Fetch HTML with Axios
                             const response = await axios.get(directLink, {
                                 headers: {
                                     'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                                    'Referer': 'https://web.pcc.gov.tw/prkms/tender/common/basic/indexTenderBasic'
+                                    'Referer': 'https://web.pcc.gov.tw/prkms/tender/common/basic/indexTenderBasic',
+                                    'Cookie': cookieString // Pass the cookies from Puppeteer
                                 },
                                 timeout: 30000
                             });
