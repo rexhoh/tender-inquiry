@@ -139,16 +139,35 @@ async function searchTenders(keyword, startDate, endDate, onProgress = () => { }
                         break;
                     }
 
-                    // Get links
-                    const tenderLinks = await page.evaluate(() => {
-                        const rows = document.querySelectorAll('table.tb_03c tbody tr');
+                    // Get links (with debug)
+                    const { links: tenderLinks, firstRowHtml } = await page.evaluate(() => {
+                        const rows = Array.from(document.querySelectorAll('table.tb_03c tbody tr'));
+                        // Skip header (th) or empty rows
+                        const dataRows = rows.filter(r => r.querySelector('td'));
+
                         const links = [];
-                        rows.forEach(row => {
-                            const link = row.querySelector('a[title="檢視標案詳細內容"]');
+                        dataRows.forEach(row => {
+                            // Try multiple selectors for the "View" button
+                            let link = row.querySelector('a[title="檢視標案詳細內容"]');
+                            if (!link) link = row.querySelector('a[href*="tender/common/unit/tenderDetail"]'); // URL pattern
+                            if (!link) {
+                                // Fallback: Check for any link with "檢視" text
+                                const allLinks = Array.from(row.querySelectorAll('a'));
+                                link = allLinks.find(a => a.innerText.includes('檢視') || a.innerText.includes('View'));
+                            }
+
                             if (link) links.push(link.href);
                         });
-                        return links;
+
+                        return {
+                            links,
+                            firstRowHtml: dataRows.length > 0 ? dataRows[0].outerHTML : 'No data rows found'
+                        };
                     });
+
+                    if (pageCount === 1) {
+                        log(`   🔍 Debug: First row HTML: ${firstRowHtml.substring(0, 500)}...`);
+                    }
 
                     log(`      Found ${tenderLinks.length} items on this page. Extraction...`);
 
@@ -158,9 +177,9 @@ async function searchTenders(keyword, startDate, endDate, onProgress = () => { }
                         const newPage = await browser.newPage();
                         await newPage.setRequestInterception(true);
                         newPage.on('request', (req) => {
-                            // Block images/css/fonts to speed up detail page loading
+                            // Block images/css/fonts/scripts to speed up detail page loading
                             const rType = req.resourceType();
-                            if (['image', 'stylesheet', 'font', 'media'].includes(rType)) req.abort();
+                            if (['image', 'stylesheet', 'font', 'media', 'script'].includes(rType)) req.abort();
                             else req.continue();
                         });
 
@@ -169,9 +188,13 @@ async function searchTenders(keyword, startDate, endDate, onProgress = () => { }
 
                             const detail = await newPage.evaluate(() => {
                                 const getText = (label) => {
+                                    // Robust label finding: look for TH containing text, get next TD
                                     const ths = Array.from(document.querySelectorAll('th'));
-                                    const targetTh = ths.find(th => th.innerText.includes(label));
-                                    return (targetTh && targetTh.nextElementSibling) ? targetTh.nextElementSibling.innerText.trim() : '';
+                                    const targetTh = ths.find(th => th.innerText.trim().includes(label));
+                                    if (targetTh && targetTh.nextElementSibling) {
+                                        return targetTh.nextElementSibling.innerText.trim();
+                                    }
+                                    return '';
                                 };
                                 return {
                                     agencyName: getText('機關名稱'),
@@ -215,6 +238,10 @@ async function searchTenders(keyword, startDate, endDate, onProgress = () => { }
                                 nextPageBtn.click()
                             ]);
                             pageCount++;
+                            if (pageCount > 20) {
+                                log(`   ⚠️ Limit reached (20 pages). Stopping pagination.`);
+                                hasNextPage = false;
+                            }
                         } catch (e) {
                             log(`   ⚠️ Failed to go to next page: ${e.message}`);
                             hasNextPage = false;
