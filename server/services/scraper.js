@@ -99,6 +99,10 @@ async function searchTenders(keyword, startDate, endDate, onProgress = () => { }
                     log(`   📄 HTML Dump (Error): ${content.substring(0, 500)}...`);
                 }
 
+                // Get cookies from the main search page to pass to Axios
+                const cookies = await page.cookies();
+                const cookieString = cookies.map(c => `${c.name}=${c.value}`).join('; ');
+
                 // 2. Process Results & Pagination
                 let hasNextPage = true;
                 let pageCount = 1;
