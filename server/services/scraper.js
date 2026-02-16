@@ -151,7 +151,22 @@ async function searchTenders(keyword, startDate, endDate, onProgress = () => { }
 
                     // Visit each link (using a separate page to avoid destroying main page context)
                     for (const [linkIndex, link] of tenderLinks.entries()) {
-                        if (linkIndex < 3) log(`      processing item ${linkIndex + 1}/${tenderLinks.length}: ${link}`); // Log first few links
+
+                        // Construct Direct Detail URL to bypass the "urlSelector" redirection page
+                        // Original: https://web.pcc.gov.tw/prkms/urlSelector/common/tpam?pk=NzExNTE1Mjk=
+                        // Target:   https://web.pcc.gov.tw/tps/QueryTender/query/searchTenderDetail?pkPmsMain=NzExNTE1Mjk=
+                        let directLink = link;
+                        try {
+                            const urlObj = new URL(link);
+                            const pk = urlObj.searchParams.get('pk');
+                            if (pk) {
+                                directLink = `https://web.pcc.gov.tw/tps/QueryTender/query/searchTenderDetail?pkPmsMain=${pk}`;
+                            }
+                        } catch (e) {
+                            log(`      ⚠️ Error parsing link PK: ${e.message}, using original link.`);
+                        }
+
+                        if (linkIndex < 3) log(`      processing item ${linkIndex + 1}/${tenderLinks.length}: ${directLink} (Original: ${link})`);
 
                         const newPage = await browser.newPage();
 
@@ -170,16 +185,16 @@ async function searchTenders(keyword, startDate, endDate, onProgress = () => { }
                                 'Referer': 'https://web.pcc.gov.tw/prkms/tender/common/basic/indexTenderBasic'
                             });
 
-                            // Navigate and wait for potential redirect
-                            await newPage.goto(link, { waitUntil: 'domcontentloaded', timeout: 30000 });
+                            // Navigate directly to the final detail page
+                            await newPage.goto(directLink, { waitUntil: 'domcontentloaded', timeout: 30000 });
 
-                            // Wait for the *real* content to load after redirect (look for agency name label)
+                            // Wait for content
                             try {
                                 await newPage.waitForFunction(() => {
                                     return document.body.innerText.includes('機關名稱') || document.body.innerText.includes('標案名稱');
                                 }, { timeout: 15000 });
                             } catch (waitError) {
-                                log(`      ⚠️ Timeout waiting for detail content (might be on intermediate page). URL: ${newPage.url()}`);
+                                log(`      ⚠️ Timeout waiting for detail content. URL: ${newPage.url()}`);
                             }
 
                             const detail = await newPage.evaluate(() => {
