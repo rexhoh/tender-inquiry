@@ -155,7 +155,7 @@ async function searchTenders(keyword, startDate, endDate, onProgress = () => { }
 
                     log(`      Found ${tenderLinks.length} items on this page. Extraction...`);
 
-                    // Visit each link (using a separate page to avoid destroying main page context)
+                    // Visit each link using Axios + Cheerio (Faster & More Stable)
                     for (const [linkIndex, link] of tenderLinks.entries()) {
 
                         // Construct Direct Detail URL to bypass the "urlSelector" redirection page
@@ -174,77 +174,75 @@ async function searchTenders(keyword, startDate, endDate, onProgress = () => { }
 
                         if (linkIndex < 3) log(`      processing item ${linkIndex + 1}/${tenderLinks.length}: ${directLink} (Original: ${link})`);
 
-                        const newPage = await browser.newPage();
-
-                        // Re-enable request interception (it's faster and safer for direct link)
-                        await newPage.setRequestInterception(true);
-                        newPage.on('request', (req) => {
-                            const rType = req.resourceType();
-                            if (['image', 'media', 'font', 'stylesheet'].includes(rType)) req.abort();
-                            else req.continue();
-                        });
-
                         try {
-                            // Set Referer to simulate coming from the list
-                            await newPage.setExtraHTTPHeaders({
-                                'Referer': 'https://web.pcc.gov.tw/prkms/tender/common/basic/indexTenderBasic'
+                            // Add a small random delay to be polite
+                            await new Promise(r => setTimeout(r, 100 + Math.random() * 200));
+
+                            // Fetch HTML with Axios
+                            const response = await axios.get(directLink, {
+                                headers: {
+                                    'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                                    'Referer': 'https://web.pcc.gov.tw/prkms/tender/common/basic/indexTenderBasic'
+                                },
+                                timeout: 30000
                             });
 
-                            // Navigate directly to the final detail page
-                            await newPage.goto(directLink, { waitUntil: 'domcontentloaded', timeout: 60000 });
+                            // Parse with Cheerio
+                            const $ = cheerio.load(response.data);
+                            const detail = {};
 
-                            // Wait for the *real* content to load
-                            try {
-                                // Wait for the specific table header class used in detail pages
-                                await newPage.waitForSelector('td.tbg_1', { visible: true, timeout: 30000 });
-                            } catch (waitError) {
-                                log(`      ⚠️ Timeout waiting for detail content (td.tbg_1). Final URL: ${newPage.url()}`);
-                                // Dump content to see where we are stuck
-                                const content = await newPage.content();
-                                log(`      📄 Stuck Page Dump (first 2000 chars): ${content.substring(0, 2000)}...`);
-                            }
+                            // Helper to determine language (Chinese vs English)
+                            const bodyText = $('body').text();
+                            const isEng = bodyText.includes('Entity Name') || bodyText.includes('Tender Name');
 
-                            const detail = await newPage.evaluate(() => {
-                                const getText = (label) => {
-                                    // Robust label finding: look for TH containing text, get next TD
-                                    const ths = Array.from(document.querySelectorAll('th'));
-                                    const targetTh = ths.find(th => th.innerText.trim().includes(label));
-                                    if (targetTh && targetTh.nextElementSibling) {
-                                        return targetTh.nextElementSibling.innerText.trim();
+                            // Helper to extract value by finding a th/td with label and getting next element
+                            const findValue = (labelCN, labelEN) => {
+                                let val = '';
+                                // We iterate all cells to find the label
+                                $('th, td').each((i, el) => {
+                                    const text = $(el).text().trim();
+                                    // Robust check: exact match or includes
+                                    if (text === labelCN || (labelEN && text === labelEN) || text.includes(labelCN)) {
+                                        // Try immediately next sibling
+                                        let next = $(el).next();
+                                        if (next.length) {
+                                            val = next.text().trim();
+                                            return false; // break loop
+                                        }
                                     }
-                                    return '';
-                                };
-                                return {
-                                    agencyName: getText('機關名稱'),
-                                    tenderId: getText('標案案號'),
-                                    tenderName: getText('標案名稱'),
-                                    budget: getText('預算金額'),
-                                    centralGov: getText('本採購是否屬中央政府計畫型案件'),
-                                    location: getText('履約地點'),
-                                    contact: getText('聯絡人')
-                                };
-                            });
+                                });
+                                return val;
+                            };
 
-                            // Debug first item extraction
+                            detail.agencyName = findValue('機關名稱', 'Entity Name') || findValue('機關名稱', 'Procuring Entity');
+                            detail.tenderId = findValue('標案案號', 'Tender No.');
+                            detail.tenderName = findValue('標案名稱', 'Tender Name');
+                            detail.budget = findValue('預算金額', 'Budget Amount');
+                            detail.location = findValue('履約地點', 'Location of Performance');
+                            // Type often needs specific label check
+                            detail.type = findValue('招標方式', 'Tender Method');
+
+                            // Central Govt Check
+                            const isCentral = (detail.agencyName || '').includes('部') || (detail.agencyName || '').includes('署');
+                            detail.centralGov = isCentral ? 'Yes' : 'No';
+
+                            // Contact Info
+                            let contactName = findValue('聯絡人', 'Contact Person');
+                            let contactPhone = findValue('聯絡電話', 'Telephone No.');
+                            detail.contact = `${contactName} ${contactPhone}`.trim();
+
                             if (linkIndex === 0) {
-                                log(`      🔍 Debug Detail [0] (Final URL: ${newPage.url()}): ${JSON.stringify(detail)}`);
-                                if (!detail.tenderId) {
-                                    const content = await newPage.content();
-                                    log(`      📄 Detail Page Dump: ${content.substring(0, 500)}...`);
-                                }
+                                log(`      🔍 Debug Detail [0] (Cheerio): ${JSON.stringify(detail)}`);
                             }
 
                             if (detail.tenderId && !seenTenderIds.has(detail.tenderId)) {
                                 seenTenderIds.add(detail.tenderId);
                                 allResults.push(detail);
                             }
-                        } catch (e) {
-                            log(`      ⚠️ Error scraping detail: ${e.message}`);
-                        } finally {
-                            await newPage.close();
+
+                        } catch (err) {
+                            log(`      ❌ Error scraping detail ${directLink}: ${err.message}`);
                         }
-                        // Small delay to be nice
-                        await new Promise(r => setTimeout(r, 50));
                     }
 
                     // Check for Next Page
