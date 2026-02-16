@@ -37,133 +37,54 @@ async function searchTenders(keyword, startDate, endDate, onProgress = () => { }
 
         log(`📋 Parsed keywords: ${JSON.stringify(keywords)}`);
 
+        // Helper to convert Gregorian Date (YYYY/MM/DD) to ROC Date (YYY/MM/DD)
+        const toROCDate = (dateStr) => {
+            if (!dateStr) return '';
+            const parts = dateStr.split(/[-/]/);
+            if (parts.length === 3) {
+                const year = parseInt(parts[0]);
+                // If year is already 3 digits (e.g. 115), assume it's ROC
+                if (year < 1000) return parts.join('/');
+                // Convert 2026 -> 115
+                const rocYear = year - 1911;
+                return `${rocYear}/${parts[1]}/${parts[2]}`;
+            }
+            return dateStr;
+        };
+
         for (const [index, subKeyword] of keywords.entries()) {
             log(`🔍 [${index + 1}/${keywords.length}] Searching for: "${subKeyword}"...`);
 
             try {
-                // 1. Navigate
-                log(`   → Navigating to Government Tender System...`);
-                // Increase timeout to 60s for slow connections
-                await page.goto('https://web.pcc.gov.tw/prkms/tender/common/basic/indexTenderBasic', { waitUntil: 'load', timeout: 60000 });
-
-                // Debug: Check if navigation succeeded
-                const title = await page.title();
-                log(`   → Page Title: "${title}"`);
-
-                // 2. Fill Search Form
-                try {
-                    const dateRadio = await page.waitForSelector('#level_23', { timeout: 10000 });
-                    if (dateRadio) {
-                        await dateRadio.click();
-                        log(`   → Selected "Date Range" search mode.`);
-                    }
-                } catch (e) {
-                    log(`   ⚠️ Date range radio (#level_23) not found. Page might be different.`);
-                    // Log partial content for debugging
-                    const content = await page.content();
-                    log(`   📝 Page Content Preview: ${content.substring(0, 200)}...`);
-                }
-
-                if (subKeyword) {
-                    try {
-                        log(`   → Waiting for input field...`);
-                        await page.waitForSelector('#tenderName', { visible: true, timeout: 15000 });
-
-                        await page.evaluate(() => {
-                            const input = document.getElementById('tenderName');
-                            if (input) input.value = '';
-                        });
-                        await page.type('#tenderName', subKeyword);
-                        log(`   → Typed keyword: "${subKeyword}"`);
-                    } catch (e) {
-                        log(`   ⚠️ Failed to find or type in #tenderName: ${e.message}`);
-                        continue; // Skip rest of loop if input fails
-                    }
-                }
-
-                // Helper to convert Gregorian Date (YYYY/MM/DD) to ROC Date (YYY/MM/DD)
-                const toROCDate = (dateStr) => {
-                    if (!dateStr) return '';
-                    const parts = dateStr.split(/[-/]/);
-                    if (parts.length === 3) {
-                        const year = parseInt(parts[0]);
-                        // If year is already 3 digits (e.g. 115), assume it's ROC
-                        if (year < 1000) return parts.join('/');
-                        // Convert 2026 -> 115
-                        const rocYear = year - 1911;
-                        return `${rocYear}/${parts[1]}/${parts[2]}`;
-                    }
-                    return dateStr;
-                };
-
+                // 1. Construct Search URL (Bypass UI interaction)
                 const rocStartDate = toROCDate(startDate);
                 const rocEndDate = toROCDate(endDate);
 
-                // Function to robustly type into an input field (clearing it first)
-                const typeInField = async (selector, value) => {
-                    await page.click(selector, { clickCount: 3 }); // Select all
-                    await page.keyboard.press('Backspace'); // Clear
-                    await page.type(selector, value, { delay: 100 }); // Type slow
-                    await page.keyboard.press('Tab'); // Trigger blur
-                };
+                // Encode parameters
+                const encodedKeyword = encodeURIComponent(subKeyword);
+                const encodedStart = encodeURIComponent(rocStartDate);
+                const encodedEnd = encodeURIComponent(rocEndDate);
 
-                if (rocStartDate) {
-                    try {
-                        log(`   → Typing Start Date: ${rocStartDate}...`);
-                        await typeInField('#tenderStartDate', rocStartDate);
-                    } catch (e) { log(`   ⚠️ Failed to set Start Date: ${e.message}`); }
-                }
-                if (rocEndDate) {
-                    try {
-                        log(`   → Typing End Date: ${rocEndDate}...`);
-                        await typeInField('#tenderEndDate', rocEndDate);
-                    } catch (e) { log(`   ⚠️ Failed to set End Date: ${e.message}`); }
-                }
+                const searchUrl = `https://web.pcc.gov.tw/prkms/tender/common/basic/readTenderBasic?pageSize=&firstSearch=true&searchType=basic&isBinding=N&isLogIn=N&level_1=on&orgName=&orgId=&tenderName=${encodedKeyword}&tenderId=&tenderType=TENDER_DECLARATION&tenderWay=TENDER_WAY_ALL_DECLARATION&dateType=isDate&tenderStartDate=${encodedStart}&tenderEndDate=${encodedEnd}&radProctrgCate=&policyAdvocacy=`;
 
-                // Verify inputs before searching
-                const inputValues = await page.evaluate(() => {
-                    return {
-                        name: document.getElementById('tenderName')?.value,
-                        start: document.getElementById('tenderStartDate')?.value,
-                        end: document.getElementById('tenderEndDate')?.value,
-                        radio: document.getElementById('level_23')?.checked
-                    };
-                });
-                log(`   📝 Pre-check: Name="${inputValues.name}", Start="${inputValues.start}", End="${inputValues.end}", DateRangeChecked=${inputValues.radio}`);
+                log(`   → Navigating directly to search results: ${searchUrl}`);
 
-                // 3. Submit Search
-                try {
-                    const searchBtn = await page.evaluateHandle(() => {
-                        const elements = document.querySelectorAll('div.bt_cen2, button, input[type="button"]');
-                        for (let el of elements) {
-                            if ((el.innerText || '').includes('查詢') || (el.value || '').includes('查詢')) return el;
-                        }
-                        return null;
-                    });
+                await Promise.all([
+                    // Wait for either results or "No Data" message
+                    page.waitForFunction(() => {
+                        // Success: A link with "View" or "檢視" exists
+                        const hasResult = !!document.querySelector('a[title="檢視標案詳細內容"]') ||
+                            Array.from(document.querySelectorAll('a')).some(a => a.innerText.includes('檢視') && a.href.includes('tenderDetail'));
+                        // Success (Empty): "無符合條件" message exists
+                        const hasNoResult = document.body.innerText.includes('無符合條件') || document.body.innerText.includes('查無資料');
+                        return hasResult || hasNoResult;
+                    }, { timeout: 60000 }),
+                    page.goto(searchUrl, { waitUntil: 'networkidle2' })
+                ]);
 
-                    if (searchBtn) {
-                        log(`   → Clicked "Query" button. Waiting for results...`);
-                        await Promise.all([
-                            // Wait for either results or "No Data" message
-                            page.waitForFunction(() => {
-                                // Success: A link with "View" or "檢視" exists
-                                const hasResult = !!document.querySelector('a[title="檢視標案詳細內容"]') ||
-                                    Array.from(document.querySelectorAll('a')).some(a => a.innerText.includes('檢視') && a.href.includes('tenderDetail'));
-                                // Success (Empty): "無符合條件" message exists
-                                const hasNoResult = document.body.innerText.includes('無符合條件') || document.body.innerText.includes('查無資料');
-                                return hasResult || hasNoResult;
-                            }, { timeout: 60000 }),
-                            searchBtn.click(),
-                        ]);
-                    } else {
-                        log(`   ❌ Error: Search button not found.`);
-                        continue;
-                    }
-                } catch (navError) {
-                    log(`   ⚠️ Navigation warning: ${navError.message}. Checking if results loaded anyway...`);
-                }
+                // 2. Process Results & Pagination
+                // (Skip UI form filling and button clicking logic)
 
-                // 4. Process Results & Pagination
                 let hasNextPage = true;
                 let pageCount = 1;
 
