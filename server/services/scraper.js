@@ -191,26 +191,27 @@ async function searchTenders(keyword, startDate, endDate, onProgress = () => { }
 
                             // Helper to extract text from table cells
                             const getText = (label) => {
-                                let val = '';
-                                // Strategy 1: Find th containing label, get next td
-                                const th = $(`th:contains('${label}')`).first();
-                                if (th.length && th.next('td').length) {
-                                    val = th.next('td').text().trim();
+                                // Find any element that contains the label text
+                                // We filter to ensure it's a TH or TD or SPAN inside one
+                                let found = $(`th, td`).filter((i, el) => $(el).text().replace(/\s+/g, '').includes(label));
+
+                                if (found.length === 0) return '';
+
+                                // The value is usually in the NEXT td
+                                let target = found.first().next('td');
+
+                                // Sometimes the label is inside a TH and the value is inside the next TD
+                                if (target.length) {
+                                    return target.text().trim();
                                 }
-                                // Strategy 2: If failed, try finding in td
-                                if (!val) {
-                                    const td = $(`td:contains('${label}')`).first();
-                                    if (td.length && td.next('td').length) {
-                                        val = td.next('td').text().trim();
-                                    }
-                                }
-                                return val;
+
+                                // Sometimes the label is in a TD and value is in next TD
+                                return '';
                             };
 
                             // Check if we got redirected to a block page or empty content
                             if ($('title').text().includes('Blocked') || htmlContent.length < 500) {
                                 log(`      ⚠️ Possible Block or Empty Content for ${directUrl}`);
-                                log(`      📄 Preview: ${htmlContent.substring(0, 300)}`);
                                 continue;
                             }
 
@@ -219,9 +220,9 @@ async function searchTenders(keyword, startDate, endDate, onProgress = () => { }
                                 tenderId: getText('標案案號'),
                                 tenderName: getText('標案名稱'),
                                 budget: getText('預算金額'),
-                                centralGov: getText('本採購是否屬中央政府計畫型案件'),
+                                centralGov: getText('本採購是否屬中央政府計畫型案件'), // This one is long, maybe match partial
                                 location: getText('履約地點'),
-                                contact: getText('聯絡人')
+                                contact: getText('聯絡人') // Match partial '聯絡人'
                             };
 
                             if (linkIndex === 0) {
