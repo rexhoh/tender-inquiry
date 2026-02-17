@@ -161,10 +161,12 @@ async function searchTenders(keyword, startDate, endDate, onProgress = () => { }
 
                     // Create a SINGLE separate page for details to reuse (much faster than newPage() every time)
                     const detailPage = await browser.newPage();
+                    // Relaxed interception: Allow stylesheets and scripts to ensure redirects and rendering work
                     await detailPage.setRequestInterception(true);
                     detailPage.on('request', (req) => {
                         const rType = req.resourceType();
-                        if (['image', 'media', 'font', 'stylesheet', 'other'].includes(rType)) req.abort();
+                        // Only block heavy media. Allow 'stylesheet', 'script', 'other', 'document', 'xhr' to ensure stability
+                        if (['image', 'media', 'font'].includes(rType)) req.abort();
                         else req.continue();
                     });
 
@@ -173,27 +175,33 @@ async function searchTenders(keyword, startDate, endDate, onProgress = () => { }
                     // Visit each link using the reusable Puppeteer page
                     for (const [linkIndex, link] of tenderLinks.entries()) {
 
-                        // Use the ORIGINAL link to follow proper redirection flow (avoid guessing URL params)
+                        // Use the ORIGINAL link to follow proper redirection flow
                         if (linkIndex < 3) log(`      processing item ${linkIndex + 1}/${tenderLinks.length}: ${link}`);
 
                         try {
                             // Navigate the reusable page with correct Referer
-                            // Link: https://web.pcc.gov.tw/prkms/urlSelector/common/tpam?pk=...
+                            // Using page.url() ensures we send the exact search page URL as referer
                             await detailPage.goto(link, {
-                                waitUntil: 'domcontentloaded',
+                                waitUntil: 'networkidle2', // Wait for network to settle (handles redirects better)
                                 timeout: 60000,
-                                referer: 'https://web.pcc.gov.tw/prkms/tender/common/basic/readTenderBasic'
+                                referer: page.url()
                             });
 
-                            // Wait for the *real* content to load (the table header class)
-                            // The urlSelector page will redirect to searchTenderDetail
+                            // Wait for the *real* content to load
+                            // Removed { visible: true } to be safer against layout oddities or blocked styles
                             try {
-                                await detailPage.waitForSelector('td.tbg_1', { visible: true, timeout: 45000 });
+                                await detailPage.waitForSelector('td.tbg_1', { timeout: 45000 });
                             } catch (waitError) {
                                 log(`      ⚠️ Timeout waiting for detail content (td.tbg_1). Final URL: ${detailPage.url()}`);
-                                // Dump content to see where we are stuck (JS check page?)
+
+                                // Enhanced Diagnostic Dump
+                                const pageTitle = await detailPage.title();
+                                const bodyText = await detailPage.evaluate(() => document.body.innerText.substring(0, 1000).replace(/\s+/g, ' '));
                                 const content = await detailPage.content();
-                                log(`      📄 Stuck Page Dump (first 500 chars): ${content.substring(0, 500)}...`);
+
+                                log(`      📄 Stuck Page Title: "${pageTitle}"`);
+                                log(`      📄 Stuck Page Text: "${bodyText}..."`);
+                                log(`      📄 Stuck Page HTML (Start): ${content.substring(0, 500)}...`);
                                 continue; // Skip this item
                             }
 
@@ -228,11 +236,11 @@ async function searchTenders(keyword, startDate, endDate, onProgress = () => { }
                             }
 
                         } catch (err) {
-                            log(`      ❌ Error scraping detail ${directLink}: ${err.message}`);
+                            log(`      ❌ Error scraping detail ${link}: ${err.message}`);
                         }
 
                         // Small delay to prevent blocking
-                        await new Promise(r => setTimeout(r, 200));
+                        await new Promise(r => setTimeout(r, 1000)); // Increased delay slightly for safety
                     }
 
                     // Close the detail page after processing the batch
