@@ -39,7 +39,7 @@ async function searchTenders(keyword, startDate, endDate, onProgress = () => { }
         // Normalize keywords: Split by ' OR ' (case-insensitive)
         const keywords = keyword.split(/\s+OR\s+/i).map(k => k.trim()).filter(k => k);
         let allResults = [];
-        const seenTenderIds = new Set();
+        const seenKeys = new Set();
 
         log(`📋 Parsed keywords: ${JSON.stringify(keywords)}`);
 
@@ -302,16 +302,18 @@ async function searchTenders(keyword, startDate, endDate, onProgress = () => { }
                                 }
                             }
 
-                            if (detail.tenderId && !seenTenderIds.has(detail.tenderId)) {
-                                seenTenderIds.add(detail.tenderId);
+                            const uniqueKey = detail.detailLink || `${detail.tenderId}_${detail.agencyName}`;
+                            if (uniqueKey && !seenKeys.has(uniqueKey)) {
+                                seenKeys.add(uniqueKey);
                                 allResults.push(detail);
                             }
 
                         } catch (err) {
                             log(`      ❌ Error fetching detail ${directUrl}: ${err.message}. Using basic info.`);
                             // Still save basic info even if fetch failed
-                            if (detail.tenderId && !seenTenderIds.has(detail.tenderId)) {
-                                seenTenderIds.add(detail.tenderId);
+                            const uniqueKey = detail.detailLink || `${detail.tenderId}_${detail.agencyName}`;
+                            if (uniqueKey && !seenKeys.has(uniqueKey)) {
+                                seenKeys.add(uniqueKey);
                                 allResults.push(detail);
                             }
                         }
