@@ -112,52 +112,43 @@ async function searchTenders(keyword, startDate, endDate, onProgress = () => { }
 
                     // Get items with basic info from the list table
                     const { items: tenderItems, debugInfo } = await page.evaluate(() => {
-                        // Find the results table by checking headers
-                        const tables = Array.from(document.querySelectorAll('table'));
-                        const resultsTable = tables.find(t => {
-                            const tx = t.innerText;
-                            return tx.includes('機關名稱') && tx.includes('標案名稱');
-                        });
+                        // Strategy: Find all result rows directly by their CSS class (tb_b2) 
+                        // or by containing urlSelector links, regardless of which table they're in
 
-                        if (!resultsTable) {
-                            return { items: [], debugInfo: `No results table found. Tables count: ${tables.length}. Body: ${document.body.innerText.substring(0, 500)}` };
+                        // First try: rows with class tb_b2 (standard result row class)
+                        let dataRows = Array.from(document.querySelectorAll('tr.tb_b2'));
+
+                        // Fallback: if no tb_b2 rows, find rows containing urlSelector links
+                        if (dataRows.length === 0) {
+                            const allLinks = Array.from(document.querySelectorAll('a[href*="urlSelector"]'));
+                            const rowSet = new Set();
+                            allLinks.forEach(a => {
+                                const tr = a.closest('tr');
+                                if (tr) rowSet.add(tr);
+                            });
+                            dataRows = Array.from(rowSet);
                         }
 
-                        // Try both tbody tr and direct tr (some tables don't have tbody)
-                        let rows = Array.from(resultsTable.querySelectorAll('tbody tr'));
-                        if (rows.length === 0) {
-                            rows = Array.from(resultsTable.querySelectorAll('tr'));
+                        // Second fallback: rows containing pk= links
+                        if (dataRows.length === 0) {
+                            const allLinks = Array.from(document.querySelectorAll('a[href*="pk="]'));
+                            const rowSet = new Set();
+                            allLinks.forEach(a => {
+                                const tr = a.closest('tr');
+                                if (tr) rowSet.add(tr);
+                            });
+                            dataRows = Array.from(rowSet);
                         }
 
                         const items = [];
-                        let rawFirstRow = '';
-                        let firstDataRow = '';
-                        let skipReasons = [];
+                        let firstRowDebug = '';
 
-                        rows.forEach((row, rowIdx) => {
-                            // Debug: capture the very first row HTML no matter what
-                            if (rowIdx === 0) {
-                                rawFirstRow = row.outerHTML.substring(0, 600);
-                            }
-
-                            const hasInput = row.querySelector('input');
-                            const hasSelect = row.querySelector('select');
+                        dataRows.forEach((row, rowIdx) => {
                             const cols = row.querySelectorAll('td');
-
-                            // Collect all links in this row for debugging
                             const allAnchors = Array.from(row.querySelectorAll('a[href]'));
 
-                            if (rowIdx < 3 && (hasInput || hasSelect || cols.length < 2)) {
-                                skipReasons.push(`row${rowIdx}: input=${!!hasInput}, select=${!!hasSelect}, cols=${cols.length}`);
-                            }
-
-                            // SKIP rows that are part of the search form
-                            if (hasInput || hasSelect) return;
-                            if (cols.length < 2) return;
-
-                            // Broad link selector
+                            // Find the detail link
                             let linkEl = null;
-                            // Try various href patterns
                             for (const a of allAnchors) {
                                 const href = a.getAttribute('href') || '';
                                 if (href.includes('urlSelector') || href.includes('tenderDetail') || href.includes('pk=')) {
@@ -165,16 +156,17 @@ async function searchTenders(keyword, startDate, endDate, onProgress = () => { }
                                     break;
                                 }
                             }
-                            // Also try title-based
-                            if (!linkEl) linkEl = row.querySelector('a[title*="檢視"]');
 
-                            if (!firstDataRow) {
+                            if (rowIdx === 0) {
                                 const anchorsInfo = allAnchors.map(a => a.getAttribute('href')?.substring(0, 80)).join(' | ');
-                                firstDataRow = `cols=${cols.length}, links=[${anchorsInfo}], linkFound=${!!linkEl}, html=${row.outerHTML.substring(0, 500)}`;
+                                firstRowDebug = `cols=${cols.length}, links=[${anchorsInfo}], linkFound=${!!linkEl}, html=${row.outerHTML.substring(0, 500)}`;
                             }
 
                             if (linkEl) {
                                 const colTexts = Array.from(cols).map(c => c.innerText.trim());
+                                // Column mapping depends on the table structure
+                                // Typical: [0]=Seq, [1]=Agency, [2]=TenderID, [3]=TenderName, ...
+                                // But could vary. Let's find meaningful text columns:
                                 const agencyName = colTexts[1] || '';
                                 const tenderId = colTexts[2] || '';
                                 const tenderName = colTexts[3] || colTexts[2] || '';
@@ -190,7 +182,7 @@ async function searchTenders(keyword, startDate, endDate, onProgress = () => { }
 
                         return {
                             items,
-                            debugInfo: `Table found. TotalRows: ${rows.length}, Extracted: ${items.length}. Skips: [${skipReasons.join('; ')}]. RawRow0: ${rawFirstRow.substring(0, 300)}. FirstDataRow: ${firstDataRow?.substring(0, 400) || 'none'}`
+                            debugInfo: `DataRows: ${dataRows.length}, Extracted: ${items.length}. FirstRow: ${firstRowDebug}`
                         };
                     });
 
