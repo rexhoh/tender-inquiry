@@ -137,9 +137,38 @@ if (fs.existsSync(clientDistPath)) {
     console.log('Client build not found. API mode only.');
 }
 
+// Log Capture for Cloud Debugging
+const MAX_LOGS = 1000;
+const systemLogs = [];
+const originalLog = console.log;
+const originalError = console.error;
+
+function captureLog(type, args) {
+    const message = args.map(arg => (typeof arg === 'object' ? JSON.stringify(arg) : String(arg))).join(' ');
+    const timestamp = new Date().toISOString();
+    systemLogs.push(`[${timestamp}] [${type}] ${message}`);
+    if (systemLogs.length > MAX_LOGS) systemLogs.shift();
+}
+
+console.log = (...args) => {
+    captureLog('INFO', args);
+    originalLog.apply(console, args);
+};
+
+console.error = (...args) => {
+    captureLog('ERROR', args);
+    originalError.apply(console, args);
+};
+
+app.get('/api/system-logs', (req, res) => {
+    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+    res.send(systemLogs.join('\n'));
+});
+
 // Start Server
 app.listen(PORT, () => {
-    console.log(`Server running on http://localhost:${PORT}`);
+    const msg = `Server running on http://localhost:${PORT}`;
+    console.log(msg);
     // Initialize saved schedules
     schedulerService.init();
 });
