@@ -175,14 +175,19 @@ async function searchTenders(keyword, startDate, endDate, onProgress = () => { }
                     // Visit each link using the reusable Puppeteer page
                     for (const [linkIndex, link] of tenderLinks.entries()) {
 
-                        // Use the ORIGINAL link to follow proper redirection flow
-                        if (linkIndex < 3) log(`      processing item ${linkIndex + 1}/${tenderLinks.length}: ${link}`);
+                        // Use Direct Link to bypass 'urlSelector' WAF check
+                        // Link format: https://web.pcc.gov.tw/prkms/urlSelector/common/tpam?pk=...
+                        const urlObj = new URL(link);
+                        const pk = urlObj.searchParams.get('pk');
+                        const directUrl = `https://web.pcc.gov.tw/prkms/tender/common/unit/tenderDetail?pk=${pk}`;
+
+                        if (linkIndex < 3) log(`      processing item ${linkIndex + 1}/${tenderLinks.length}: ${directUrl} (Bypassing urlSelector)`);
 
                         try {
                             // Navigate the reusable page with correct Referer
                             // Using page.url() ensures we send the exact search page URL as referer
-                            await detailPage.goto(link, {
-                                waitUntil: 'networkidle2', // Wait for network to settle (handles redirects better)
+                            await detailPage.goto(directUrl, {
+                                waitUntil: 'networkidle2', // Wait for network to settle
                                 timeout: 60000,
                                 referer: page.url()
                             });
