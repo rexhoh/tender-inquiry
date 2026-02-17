@@ -111,7 +111,7 @@ async function searchTenders(keyword, startDate, endDate, onProgress = () => { }
                     log(`   📄 Processing Page ${pageCount}...`);
 
                     // Get items with basic info from the list table
-                    const { items: tenderItems } = await page.evaluate(() => {
+                    const { items: tenderItems, debugInfo } = await page.evaluate(() => {
                         // Find the results table by checking headers
                         const tables = Array.from(document.querySelectorAll('table'));
                         const resultsTable = tables.find(t => {
@@ -120,49 +120,63 @@ async function searchTenders(keyword, startDate, endDate, onProgress = () => { }
                         });
 
                         if (!resultsTable) {
-                            return { items: [] };
+                            return { items: [], debugInfo: `No results table found. Tables count: ${tables.length}. Body text: ${document.body.innerText.substring(0, 500)}` };
                         }
 
                         const rows = Array.from(resultsTable.querySelectorAll('tbody tr'));
                         const items = [];
+                        let firstRowDebug = '';
 
-                        rows.forEach(row => {
-                            // SKIP rows that are part of the search form (look like inputs)
+                        rows.forEach((row, rowIdx) => {
+                            // SKIP rows that are part of the search form
                             if (row.querySelector('input') || row.querySelector('select')) return;
 
                             const cols = row.querySelectorAll('td');
-                            // Assuming a structure like: [Seq] [Agency] [TenderID] [TenderName] [Date] ...
-                            if (cols.length < 4) return; // Ensure enough columns for basic info
+                            if (cols.length < 3) return;
 
-                            // Try to extract link
-                            let linkEl = row.querySelector('a[title="檢視標案詳細內容"]');
-                            if (!linkEl) linkEl = row.querySelector('a[href*="tender/common/unit/tenderDetail"]');
+                            // Broad link selector: match urlSelector OR tenderDetail
+                            let linkEl = row.querySelector('a[href*="urlSelector"]');
+                            if (!linkEl) linkEl = row.querySelector('a[href*="tenderDetail"]');
+                            if (!linkEl) linkEl = row.querySelector('a[title*="檢視"]');
                             if (!linkEl) {
-                                const allLinks = Array.from(row.querySelectorAll('a'));
-                                linkEl = allLinks.find(a => a.innerText.includes('檢視') || a.innerText.includes('View'));
+                                // Last resort: find any <a> with an href containing 'pk='
+                                const allLinks = Array.from(row.querySelectorAll('a[href]'));
+                                linkEl = allLinks.find(a => a.href.includes('pk='));
+                            }
+
+                            if (rowIdx === 0) {
+                                firstRowDebug = `cols=${cols.length}, linkEl=${linkEl ? linkEl.href : 'null'}, html=${row.outerHTML.substring(0, 500)}`;
                             }
 
                             if (linkEl) {
-                                // Extract basic info from columns (Adjust indices based on observation)
-                                // Standard Layout often: [Seq] [Agency] [TenderID] [TenderName] [Date] ...
-                                const agencyName = cols[1]?.innerText.trim() || '';
-                                const tenderId = cols[2]?.innerText.trim() || '';
-                                const tenderName = cols[3]?.innerText.trim() || '';
-                                const date = cols[4]?.innerText.trim() || ''; // Assuming date is in the 5th column (index 4)
+                                // Extract basic info from columns
+                                // Standard: [Seq] [Agency] [TenderID] [TenderName] [Date] ...
+                                // But we need to detect columns dynamically
+                                const colTexts = Array.from(cols).map(c => c.innerText.trim());
+
+                                // Typically: col[0]=seq, col[1]=agency, col[2]=tenderName (with ID inside)
+                                // OR: col[0]=seq, col[1]=agency, col[2]=tenderId, col[3]=tenderName
+                                // We'll grab what we can:
+                                const agencyName = colTexts[1] || '';
+                                const tenderId = colTexts[2] || '';
+                                const tenderName = colTexts[3] || colTexts[2] || '';
 
                                 items.push({
                                     link: linkEl.href,
                                     agencyName,
                                     tenderId,
-                                    tenderName,
-                                    date
+                                    tenderName
                                 });
                             }
                         });
 
-                        return { items };
+                        return {
+                            items,
+                            debugInfo: `Table found. Rows: ${rows.length}, Items extracted: ${items.length}. FirstRow: ${firstRowDebug}`
+                        };
                     });
 
+                    log(`      🔍 Table Debug: ${debugInfo}`);
                     log(`      Found ${tenderItems.length} items on this page. Extraction using In-Page Fetch...`);
 
                     for (const [itemIndex, item] of tenderItems.entries()) {
@@ -328,7 +342,8 @@ async function searchTenders(keyword, startDate, endDate, onProgress = () => { }
                 { id: 'budget', title: '預算金額' },
                 { id: 'centralGov', title: '中央政府計畫' },
                 { id: 'location', title: '履約地點' },
-                { id: 'contact', title: '機關窗口' }
+                { id: 'contact', title: '機關窗口' },
+                { id: 'detailLink', title: '詳細連結' }
             ],
             encoding: 'utf8'
         });

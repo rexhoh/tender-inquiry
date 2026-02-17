@@ -13,8 +13,8 @@ const ResultsTable = ({ results }) => {
 
     const handleDownload = () => {
         // Generate CSV content
-        const headers = ['機關名稱', '標案案號', '標案名稱', '預算金額', '中央政府計畫', '履約地點', '機關窗口'];
-        const keys = ['agencyName', 'tenderId', 'tenderName', 'budget', 'centralGov', 'location', 'contact'];
+        const headers = ['機關名稱', '標案案號', '標案名稱', '預算金額', '中央政府計畫', '履約地點', '機關窗口', '詳細連結'];
+        const keys = ['agencyName', 'tenderId', 'tenderName', 'budget', 'centralGov', 'location', 'contact', 'detailLink'];
 
         const csvContent = [
             headers.join(','),
@@ -57,6 +57,7 @@ const ResultsTable = ({ results }) => {
                             <th scope="col" className="px-6 py-4 border-b border-cyan-900/50">預算金額</th>
                             <th scope="col" className="px-6 py-4 border-b border-cyan-900/50">履約地點</th>
                             <th scope="col" className="px-6 py-4 border-b border-cyan-900/50">聯絡人</th>
+                            <th scope="col" className="px-6 py-4 border-b border-cyan-900/50">詳細連結</th>
                         </tr>
                     </thead>
                     <tbody className="divide-y divide-cyan-900/30 bg-black/20">
@@ -83,6 +84,21 @@ const ResultsTable = ({ results }) => {
                                 </td>
                                 <td className="px-6 py-4 text-cyan-300/70">
                                     {item.contact}
+                                </td>
+                                <td className="px-6 py-4">
+                                    {item.detailLink ? (
+                                        <a
+                                            href={item.detailLink}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className="inline-flex items-center gap-1 px-2 py-1 text-xs bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-400 border border-cyan-500/30 hover:border-cyan-400 rounded transition-all"
+                                        >
+                                            <ExternalLink className="w-3 h-3" />
+                                            查看
+                                        </a>
+                                    ) : (
+                                        <span className="text-cyan-800 text-xs">—</span>
+                                    )}
                                 </td>
                             </tr>
                         ))}
