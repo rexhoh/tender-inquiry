@@ -226,6 +226,10 @@ async function searchTenders(keyword, startDate, endDate, onProgress = () => { }
 
                             if (linkIndex === 0) {
                                 log(`      🔍 Debug Detail [0]: ${JSON.stringify(detail)}`);
+                                if (!detail.agencyName || !detail.tenderId) {
+                                    log(`      ⚠️ Extraction Failed. Dumping HTML Preview:`);
+                                    log(`      ${htmlContent.substring(0, 2000).replace(/\s+/g, ' ')}...`);
+                                }
                             }
 
                             if (detail.tenderId && !seenTenderIds.has(detail.tenderId)) {
