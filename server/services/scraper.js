@@ -184,12 +184,13 @@ async function searchTenders(keyword, startDate, endDate, onProgress = () => { }
                         if (linkIndex < 3) log(`      processing item ${linkIndex + 1}/${tenderLinks.length}: ${directUrl} (Bypassing urlSelector)`);
 
                         try {
-                            // Navigate the reusable page with correct Referer
-                            // Using page.url() ensures we send the exact search page URL as referer
+                            // Navigate the reusable page
+                            // For direct links, sometimes Referer can actually trigger checks if it's not the exact list page.
+                            // Let's try removing explicit Referer for direct access or setting it to the generic search page.
                             await detailPage.goto(directUrl, {
-                                waitUntil: 'networkidle2', // Wait for network to settle
+                                waitUntil: 'networkidle2',
                                 timeout: 60000,
-                                referer: page.url()
+                                referer: 'https://web.pcc.gov.tw/prkms/tender/common/basic/readTenderBasic'
                             });
 
                             // Wait for the *real* content to load
