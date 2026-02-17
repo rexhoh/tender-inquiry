@@ -110,67 +110,78 @@ async function searchTenders(keyword, startDate, endDate, onProgress = () => { }
                 while (hasNextPage) {
                     log(`   📄 Processing Page ${pageCount}...`);
 
-                    // Get links (with debug and smart table selection)
-                    const { links: tenderLinks, firstRowHtml } = await page.evaluate(() => {
+                    // Get items with basic info from the list table
+                    const { items: tenderItems } = await page.evaluate(() => {
                         // Find the results table by checking headers
                         const tables = Array.from(document.querySelectorAll('table'));
                         const resultsTable = tables.find(t => {
                             const tx = t.innerText;
-                            return tx.includes('機關名稱') && tx.includes('標案名稱') && tx.includes('功能選項');
+                            return tx.includes('機關名稱') && tx.includes('標案名稱');
                         });
 
                         if (!resultsTable) {
-                            return { links: [], firstRowHtml: document.body.innerHTML.substring(0, 1000) }; // Dump body if table missing
+                            return { items: [] };
                         }
 
                         const rows = Array.from(resultsTable.querySelectorAll('tbody tr'));
-                        const links = [];
-                        let firstValidRowHtml = '';
+                        const items = [];
 
                         rows.forEach(row => {
                             // SKIP rows that are part of the search form (look like inputs)
                             if (row.querySelector('input') || row.querySelector('select')) return;
 
-                            // Try multiple selectors for the "View" button
-                            let link = row.querySelector('a[title="檢視標案詳細內容"]');
-                            if (!link) link = row.querySelector('a[href*="tender/common/unit/tenderDetail"]'); // URL pattern
+                            const cols = row.querySelectorAll('td');
+                            // Assuming a structure like: [Seq] [Agency] [TenderID] [TenderName] [Date] ...
+                            if (cols.length < 4) return; // Ensure enough columns for basic info
 
-                            if (!link) {
-                                // Fallback: Check for any link with "檢視" text specific to this row
+                            // Try to extract link
+                            let linkEl = row.querySelector('a[title="檢視標案詳細內容"]');
+                            if (!linkEl) linkEl = row.querySelector('a[href*="tender/common/unit/tenderDetail"]');
+                            if (!linkEl) {
                                 const allLinks = Array.from(row.querySelectorAll('a'));
-                                link = allLinks.find(a => a.innerText.includes('檢視') || a.innerText.includes('View'));
+                                linkEl = allLinks.find(a => a.innerText.includes('檢視') || a.innerText.includes('View'));
                             }
 
-                            if (link) {
-                                links.push(link.href);
-                                if (!firstValidRowHtml) firstValidRowHtml = row.outerHTML;
+                            if (linkEl) {
+                                // Extract basic info from columns (Adjust indices based on observation)
+                                // Standard Layout often: [Seq] [Agency] [TenderID] [TenderName] [Date] ...
+                                const agencyName = cols[1]?.innerText.trim() || '';
+                                const tenderId = cols[2]?.innerText.trim() || '';
+                                const tenderName = cols[3]?.innerText.trim() || '';
+                                const date = cols[4]?.innerText.trim() || ''; // Assuming date is in the 5th column (index 4)
+
+                                items.push({
+                                    link: linkEl.href,
+                                    agencyName,
+                                    tenderId,
+                                    tenderName,
+                                    date
+                                });
                             }
                         });
 
-                        return {
-                            links,
-                            firstRowHtml: firstValidRowHtml || (rows.length > 0 ? rows[0].outerHTML : 'No rows with valid links found')
-                        };
+                        return { items };
                     });
 
-                    if (pageCount === 1) {
-                        log(`   🔍 Debug: First row HTML: ${firstRowHtml.substring(0, 500)}...`);
-                    }
+                    log(`      Found ${tenderItems.length} items on this page. Extraction using In-Page Fetch...`);
 
-                    log(`      Found ${tenderLinks.length} items on this page. Extraction...`);
-                    // Create a SINGLE separate page for details to reuse (much faster than newPage() every time)
-                    // WAF UPDATE: Navigation is being blocked. We will reuse the MAIN page context to fetch data via JS.
-                    // This uses the browser's existing session/cookies and avoids "webdriver navigation" triggers.
+                    for (const [itemIndex, item] of tenderItems.entries()) {
+                        const directUrl = item.link;
 
-                    log(`      Found ${tenderLinks.length} items on this page. Extraction using In-Page Fetch...`);
+                        // Default to basic info from the list page
+                        let detail = {
+                            agencyName: item.agencyName,
+                            tenderId: item.tenderId,
+                            tenderName: item.tenderName,
+                            date: item.date, // Add date from list page
+                            budget: '',
+                            centralGov: '',
+                            location: '',
+                            contact: '',
+                            detailLink: directUrl // Add link field
+                        };
 
-                    for (const [linkIndex, link] of tenderLinks.entries()) {
-
-                        // Use Original Link (urlSelector) and let fetch() follow redirects
-                        const directUrl = link;
-
-                        // Link format: https://web.pcc.gov.tw/prkms/urlSelector/common/tpam?pk=...
-                        if (linkIndex < 3) log(`      processing item ${linkIndex + 1}/${tenderLinks.length}: ${directUrl}`);
+                        if (itemIndex < 3) log(`      processing item ${itemIndex + 1}/${tenderItems.length}: ${directUrl}`);
 
                         try {
                             // Fetch content directly from within the browser context
@@ -185,46 +196,55 @@ async function searchTenders(keyword, startDate, endDate, onProgress = () => { }
                                 return await response.text();
                             }, directUrl);
 
-                            // Parse with Cheerio (server-side)
-                            const $ = cheerio.load(htmlContent);
+                            // Check if we got redirected to a block page/captcha
+                            // Captcha often has "validate/init" or specific text
+                            if (htmlContent.includes('validate/init') || htmlContent.includes('撲克牌') || htmlContent.length < 500) {
+                                log(`      ⚠️ Validated/Captcha Page Detected or Empty Content for ${item.tenderId}. Using basic info.`);
+                                // Keep the basic info already in 'detail'
+                            } else {
+                                // Parse with Cheerio (server-side)
+                                const $ = cheerio.load(htmlContent);
 
-                            // Helper to extract text from table cells
-                            const getText = (label) => {
-                                // Find any element that contains the label text
-                                // We filter to ensure it's a TH or TD or SPAN inside one
-                                let found = $(`th, td`).filter((i, el) => $(el).text().replace(/\s+/g, '').includes(label));
+                                // Helper to extract text from table cells
+                                const getText = (label) => {
+                                    // Find any element that contains the label text
+                                    // We filter to ensure it's a TH or TD or SPAN inside one
+                                    let found = $(`th, td`).filter((i, el) => $(el).text().replace(/\s+/g, '').includes(label));
 
-                                if (found.length === 0) return '';
+                                    if (found.length === 0) return '';
 
-                                // The value is usually in the NEXT td
-                                let target = found.first().next('td');
+                                    // The value is usually in the NEXT td
+                                    let target = found.first().next('td');
 
-                                // Sometimes the label is inside a TH and the value is inside the next TD
-                                if (target.length) {
-                                    return target.text().trim();
-                                }
+                                    // Sometimes the label is inside a TH and the value is inside the next TD
+                                    if (target.length) {
+                                        return target.text().trim();
+                                    }
 
-                                // Sometimes the label is in a TD and value is in next TD
-                                return '';
-                            };
+                                    // Sometimes the label is in a TD and value is in next TD
+                                    return '';
+                                };
 
-                            // Check if we got redirected to a block page or empty content
-                            if ($('title').text().includes('Blocked') || htmlContent.length < 500) {
-                                log(`      ⚠️ Possible Block or Empty Content for ${directUrl}`);
-                                continue;
+                                // Enhanced extraction - overwrite basic info if detail is better
+                                const fullAgency = getText('機關名稱');
+                                const fullTenderId = getText('標案案號');
+                                const fullTenderName = getText('標案名稱');
+                                const fullDate = getText('招標方式'); // Assuming '招標方式' is near the date or another date field exists
+
+                                if (fullAgency) detail.agencyName = fullAgency;
+                                if (fullTenderId) detail.tenderId = fullTenderId;
+                                if (fullTenderName) detail.tenderName = fullTenderName;
+                                // If a more specific date is found on the detail page, use it
+                                // For now, keeping the list page date unless a better field is identified
+                                // if (fullDate) detail.date = fullDate;
+
+                                detail.budget = getText('預算金額');
+                                detail.centralGov = getText('本採購是否屬中央政府計畫型案件');
+                                detail.location = getText('履約地點');
+                                detail.contact = getText('聯絡人');
                             }
 
-                            const detail = {
-                                agencyName: getText('機關名稱'),
-                                tenderId: getText('標案案號'),
-                                tenderName: getText('標案名稱'),
-                                budget: getText('預算金額'),
-                                centralGov: getText('本採購是否屬中央政府計畫型案件'), // This one is long, maybe match partial
-                                location: getText('履約地點'),
-                                contact: getText('聯絡人') // Match partial '聯絡人'
-                            };
-
-                            if (linkIndex === 0) {
+                            if (itemIndex === 0) {
                                 log(`      🔍 Debug Detail [0]: ${JSON.stringify(detail)}`);
                                 if (!detail.agencyName || !detail.tenderId) {
                                     log(`      ⚠️ Extraction Failed. Dumping HTML Preview:`);
@@ -238,7 +258,12 @@ async function searchTenders(keyword, startDate, endDate, onProgress = () => { }
                             }
 
                         } catch (err) {
-                            log(`      ❌ Error fetching detail ${directUrl}: ${err.message}`);
+                            log(`      ❌ Error fetching detail ${directUrl}: ${err.message}. Using basic info.`);
+                            // Still save basic info even if fetch failed
+                            if (detail.tenderId && !seenTenderIds.has(detail.tenderId)) {
+                                seenTenderIds.add(detail.tenderId);
+                                allResults.push(detail);
+                            }
                         }
 
                         // Delay to be polite
