@@ -85,7 +85,7 @@ async function searchTenders(keyword, startDate, endDate, onProgress = () => { }
 
                     // Wait for result rows to appear
                     try {
-                        await page.waitForSelector('tr.tb_b2', { timeout: 15000 });
+                        await page.waitForSelector('tr.tb_b2, tr.tb_b3', { timeout: 15000 });
                     } catch (e) {
                         log(`   ⚠️ No tr.tb_b2 rows found within timeout. Checking page...`);
                     }
@@ -126,8 +126,8 @@ async function searchTenders(keyword, startDate, endDate, onProgress = () => { }
                         // Strategy: Find all result rows directly by their CSS class (tb_b2) 
                         // or by containing urlSelector links, regardless of which table they're in
 
-                        // First try: rows with class tb_b2 (standard result row class)
-                        let dataRows = Array.from(document.querySelectorAll('tr.tb_b2'));
+                        // First try: rows with class tb_b2 OR tb_b3 (alternating row classes)
+                        let dataRows = Array.from(document.querySelectorAll('tr.tb_b2, tr.tb_b3'));
 
                         // Fallback: if no tb_b2 rows, find rows containing urlSelector links
                         if (dataRows.length === 0) {
@@ -340,7 +340,7 @@ async function searchTenders(keyword, startDate, endDate, onProgress = () => { }
                             await page.goto(nextPageInfo.href, { waitUntil: 'networkidle2', timeout: 60000 });
                             // Wait for result rows
                             try {
-                                await page.waitForSelector('tr.tb_b2', { timeout: 15000 });
+                                await page.waitForSelector('tr.tb_b2, tr.tb_b3', { timeout: 15000 });
                             } catch (e) {
                                 log(`   ⚠️ No rows on next page within timeout.`);
                             }
