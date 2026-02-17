@@ -12,9 +12,8 @@ const ResultsTable = ({ results }) => {
     }
 
     const handleDownload = () => {
-        // Generate CSV content
-        const headers = ['機關名稱', '標案案號', '標案名稱', '預算金額', '中央政府計畫', '履約地點', '機關窗口', '詳細連結'];
-        const keys = ['agencyName', 'tenderId', 'tenderName', 'budget', 'centralGov', 'location', 'contact', 'detailLink'];
+        const headers = ['機關名稱', '標案案號', '標案名稱', '招標方式', '公告日期', '截止日期', '預算金額', '履約地點', '機關窗口', '詳細連結'];
+        const keys = ['agencyName', 'tenderId', 'tenderName', 'method', 'publishDate', 'deadline', 'budget', 'location', 'contact', 'detailLink'];
 
         const csvContent = [
             headers.join(','),
@@ -37,7 +36,7 @@ const ResultsTable = ({ results }) => {
                 <h2 className="text-xl font-bold text-cyan-100 flex items-center gap-2">
                     <span className="w-1 h-6 bg-cyan-500 rounded-sm" />
                     SEARCH RESULTS
-                    <span className="text-cyan-700 text-sm font-mono ml-2">[{results.length} FUNDS FOUND]</span>
+                    <span className="text-cyan-700 text-sm font-mono ml-2">[{results.length} RECORDS FOUND]</span>
                 </h2>
                 <button
                     onClick={handleDownload}
@@ -52,40 +51,41 @@ const ResultsTable = ({ results }) => {
                 <table className="w-full text-left text-sm text-cyan-200/70">
                     <thead className="bg-cyan-950/30 text-cyan-400 font-mono text-xs uppercase tracking-wider backdrop-blur-sm">
                         <tr>
-                            <th scope="col" className="px-6 py-4 border-b border-cyan-900/50">機關名稱</th>
-                            <th scope="col" className="px-6 py-4 border-b border-cyan-900/50">標案案號 / 名稱</th>
-                            <th scope="col" className="px-6 py-4 border-b border-cyan-900/50">預算金額</th>
-                            <th scope="col" className="px-6 py-4 border-b border-cyan-900/50">履約地點</th>
-                            <th scope="col" className="px-6 py-4 border-b border-cyan-900/50">聯絡人</th>
-                            <th scope="col" className="px-6 py-4 border-b border-cyan-900/50">詳細連結</th>
+                            <th scope="col" className="px-4 py-4 border-b border-cyan-900/50">機關名稱</th>
+                            <th scope="col" className="px-4 py-4 border-b border-cyan-900/50">標案案號 / 名稱</th>
+                            <th scope="col" className="px-4 py-4 border-b border-cyan-900/50">招標方式</th>
+                            <th scope="col" className="px-4 py-4 border-b border-cyan-900/50">公告日期</th>
+                            <th scope="col" className="px-4 py-4 border-b border-cyan-900/50">截止日期</th>
+                            <th scope="col" className="px-4 py-4 border-b border-cyan-900/50">預算金額</th>
+                            <th scope="col" className="px-4 py-4 border-b border-cyan-900/50">連結</th>
                         </tr>
                     </thead>
                     <tbody className="divide-y divide-cyan-900/30 bg-black/20">
                         {results.map((item, index) => (
                             <tr key={index} className="hover:bg-cyan-500/5 transition-colors group">
-                                <td className="px-6 py-4 font-medium text-cyan-50 relative">
+                                <td className="px-4 py-4 font-medium text-cyan-50 relative max-w-[200px]">
                                     <div className="absolute left-0 top-0 bottom-0 w-0.5 bg-cyan-500 opacity-0 group-hover:opacity-100 transition-opacity" />
-                                    {item.agencyName}
-                                    {item.centralGov === '是' && (
-                                        <span className="ml-2 inline-flex items-center px-1.5 py-0.5 rounded text-[10px] uppercase font-bold bg-purple-500/20 text-purple-300 border border-purple-500/30">
-                                            Central
-                                        </span>
-                                    )}
+                                    <div className="truncate">{item.agencyName}</div>
                                 </td>
-                                <td className="px-6 py-4">
-                                    <div className="font-mono text-cyan-500 font-bold group-hover:text-cyan-400 transition-colors">{item.tenderId}</div>
-                                    <div className="text-white/80 mt-1 font-bold line-clamp-2">{item.tenderName}</div>
+                                <td className="px-4 py-4 max-w-[300px]">
+                                    <div className="font-mono text-cyan-500 font-bold group-hover:text-cyan-400 transition-colors text-xs">{item.tenderId}</div>
+                                    <div className="text-white/80 mt-1 font-bold line-clamp-2 text-sm">{item.tenderName}</div>
                                 </td>
-                                <td className="px-6 py-4 text-green-400 font-mono font-bold tracking-tight">
-                                    {item.budget}
+                                <td className="px-4 py-4 text-cyan-300/70 text-xs whitespace-nowrap">
+                                    {item.method}
                                 </td>
-                                <td className="px-6 py-4 text-cyan-300/70">
-                                    {item.location}
+                                <td className="px-4 py-4 font-mono text-cyan-300/70 text-xs whitespace-nowrap">
+                                    {item.publishDate}
                                 </td>
-                                <td className="px-6 py-4 text-cyan-300/70">
-                                    {item.contact}
+                                <td className="px-4 py-4 font-mono text-xs whitespace-nowrap">
+                                    {item.deadline ? (
+                                        <span className="text-orange-400">{item.deadline}</span>
+                                    ) : '—'}
                                 </td>
-                                <td className="px-6 py-4">
+                                <td className="px-4 py-4 text-green-400 font-mono font-bold tracking-tight whitespace-nowrap">
+                                    {item.budget ? `$${item.budget}` : '—'}
+                                </td>
+                                <td className="px-4 py-4">
                                     {item.detailLink ? (
                                         <a
                                             href={item.detailLink}

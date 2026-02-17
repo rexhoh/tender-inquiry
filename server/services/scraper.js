@@ -164,18 +164,31 @@ async function searchTenders(keyword, startDate, endDate, onProgress = () => { }
 
                             if (linkEl) {
                                 const colTexts = Array.from(cols).map(c => c.innerText.trim());
-                                // Column mapping depends on the table structure
-                                // Typical: [0]=Seq, [1]=Agency, [2]=TenderID, [3]=TenderName, ...
-                                // But could vary. Let's find meaningful text columns:
+                                // Actual column mapping (observed):
+                                // [0]=Seq, [1]=Agency, [2]=TenderID\nTenderName, [3]=Category
+                                // [4]=Method, [5]=Type, [6]=PublishDate, [7]=Deadline, [8]=Budget, [9]=Action
                                 const agencyName = colTexts[1] || '';
-                                const tenderId = colTexts[2] || '';
-                                const tenderName = colTexts[3] || colTexts[2] || '';
+
+                                // cols[2] has "TenderID\nTenderName" combined
+                                const tenderCell = colTexts[2] || '';
+                                const tenderParts = tenderCell.split('\n');
+                                const tenderId = (tenderParts[0] || '').trim();
+                                const tenderName = (tenderParts.slice(1).join(' ') || '').trim();
+
+                                const method = colTexts[4] || ''; // 招標方式
+                                const publishDate = colTexts[6] || ''; // 公告日期
+                                const deadline = colTexts[7] || ''; // 截止日期
+                                const budget = colTexts[8] || ''; // 預算金額
 
                                 items.push({
                                     link: linkEl.href,
                                     agencyName,
                                     tenderId,
-                                    tenderName
+                                    tenderName,
+                                    method,
+                                    publishDate,
+                                    deadline,
+                                    budget
                                 });
                             }
                         });
@@ -197,12 +210,14 @@ async function searchTenders(keyword, startDate, endDate, onProgress = () => { }
                             agencyName: item.agencyName,
                             tenderId: item.tenderId,
                             tenderName: item.tenderName,
-                            date: item.date, // Add date from list page
-                            budget: '',
+                            method: item.method || '',
+                            publishDate: item.publishDate || '',
+                            deadline: item.deadline || '',
+                            budget: item.budget || '',
                             centralGov: '',
                             location: '',
                             contact: '',
-                            detailLink: directUrl // Add link field
+                            detailLink: directUrl
                         };
 
                         if (itemIndex < 3) log(`      processing item ${itemIndex + 1}/${tenderItems.length}: ${directUrl}`);
@@ -349,6 +364,9 @@ async function searchTenders(keyword, startDate, endDate, onProgress = () => { }
                 { id: 'agencyName', title: '機關名稱' },
                 { id: 'tenderId', title: '標案案號' },
                 { id: 'tenderName', title: '標案名稱' },
+                { id: 'method', title: '招標方式' },
+                { id: 'publishDate', title: '公告日期' },
+                { id: 'deadline', title: '截止日期' },
                 { id: 'budget', title: '預算金額' },
                 { id: 'centralGov', title: '中央政府計畫' },
                 { id: 'location', title: '履約地點' },
