@@ -120,43 +120,61 @@ async function searchTenders(keyword, startDate, endDate, onProgress = () => { }
                         });
 
                         if (!resultsTable) {
-                            return { items: [], debugInfo: `No results table found. Tables count: ${tables.length}. Body text: ${document.body.innerText.substring(0, 500)}` };
+                            return { items: [], debugInfo: `No results table found. Tables count: ${tables.length}. Body: ${document.body.innerText.substring(0, 500)}` };
                         }
 
-                        const rows = Array.from(resultsTable.querySelectorAll('tbody tr'));
+                        // Try both tbody tr and direct tr (some tables don't have tbody)
+                        let rows = Array.from(resultsTable.querySelectorAll('tbody tr'));
+                        if (rows.length === 0) {
+                            rows = Array.from(resultsTable.querySelectorAll('tr'));
+                        }
+
                         const items = [];
-                        let firstRowDebug = '';
+                        let rawFirstRow = '';
+                        let firstDataRow = '';
+                        let skipReasons = [];
 
                         rows.forEach((row, rowIdx) => {
-                            // SKIP rows that are part of the search form
-                            if (row.querySelector('input') || row.querySelector('select')) return;
-
-                            const cols = row.querySelectorAll('td');
-                            if (cols.length < 3) return;
-
-                            // Broad link selector: match urlSelector OR tenderDetail
-                            let linkEl = row.querySelector('a[href*="urlSelector"]');
-                            if (!linkEl) linkEl = row.querySelector('a[href*="tenderDetail"]');
-                            if (!linkEl) linkEl = row.querySelector('a[title*="檢視"]');
-                            if (!linkEl) {
-                                // Last resort: find any <a> with an href containing 'pk='
-                                const allLinks = Array.from(row.querySelectorAll('a[href]'));
-                                linkEl = allLinks.find(a => a.href.includes('pk='));
+                            // Debug: capture the very first row HTML no matter what
+                            if (rowIdx === 0) {
+                                rawFirstRow = row.outerHTML.substring(0, 600);
                             }
 
-                            if (rowIdx === 0) {
-                                firstRowDebug = `cols=${cols.length}, linkEl=${linkEl ? linkEl.href : 'null'}, html=${row.outerHTML.substring(0, 500)}`;
+                            const hasInput = row.querySelector('input');
+                            const hasSelect = row.querySelector('select');
+                            const cols = row.querySelectorAll('td');
+
+                            // Collect all links in this row for debugging
+                            const allAnchors = Array.from(row.querySelectorAll('a[href]'));
+
+                            if (rowIdx < 3 && (hasInput || hasSelect || cols.length < 2)) {
+                                skipReasons.push(`row${rowIdx}: input=${!!hasInput}, select=${!!hasSelect}, cols=${cols.length}`);
+                            }
+
+                            // SKIP rows that are part of the search form
+                            if (hasInput || hasSelect) return;
+                            if (cols.length < 2) return;
+
+                            // Broad link selector
+                            let linkEl = null;
+                            // Try various href patterns
+                            for (const a of allAnchors) {
+                                const href = a.getAttribute('href') || '';
+                                if (href.includes('urlSelector') || href.includes('tenderDetail') || href.includes('pk=')) {
+                                    linkEl = a;
+                                    break;
+                                }
+                            }
+                            // Also try title-based
+                            if (!linkEl) linkEl = row.querySelector('a[title*="檢視"]');
+
+                            if (!firstDataRow) {
+                                const anchorsInfo = allAnchors.map(a => a.getAttribute('href')?.substring(0, 80)).join(' | ');
+                                firstDataRow = `cols=${cols.length}, links=[${anchorsInfo}], linkFound=${!!linkEl}, html=${row.outerHTML.substring(0, 500)}`;
                             }
 
                             if (linkEl) {
-                                // Extract basic info from columns
-                                // Standard: [Seq] [Agency] [TenderID] [TenderName] [Date] ...
-                                // But we need to detect columns dynamically
                                 const colTexts = Array.from(cols).map(c => c.innerText.trim());
-
-                                // Typically: col[0]=seq, col[1]=agency, col[2]=tenderName (with ID inside)
-                                // OR: col[0]=seq, col[1]=agency, col[2]=tenderId, col[3]=tenderName
-                                // We'll grab what we can:
                                 const agencyName = colTexts[1] || '';
                                 const tenderId = colTexts[2] || '';
                                 const tenderName = colTexts[3] || colTexts[2] || '';
@@ -172,7 +190,7 @@ async function searchTenders(keyword, startDate, endDate, onProgress = () => { }
 
                         return {
                             items,
-                            debugInfo: `Table found. Rows: ${rows.length}, Items extracted: ${items.length}. FirstRow: ${firstRowDebug}`
+                            debugInfo: `Table found. TotalRows: ${rows.length}, Extracted: ${items.length}. Skips: [${skipReasons.join('; ')}]. RawRow0: ${rawFirstRow.substring(0, 300)}. FirstDataRow: ${firstDataRow?.substring(0, 400) || 'none'}`
                         };
                     });
 
