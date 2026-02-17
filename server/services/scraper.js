@@ -166,11 +166,10 @@ async function searchTenders(keyword, startDate, endDate, onProgress = () => { }
 
                     for (const [linkIndex, link] of tenderLinks.entries()) {
 
-                        // Use Direct Link to bypass 'urlSelector' WAF check
-                        const urlObj = new URL(link);
-                        const pk = urlObj.searchParams.get('pk');
-                        const directUrl = `https://web.pcc.gov.tw/prkms/tender/common/unit/tenderDetail?pk=${pk}`;
+                        // Use Original Link (urlSelector) and let fetch() follow redirects
+                        const directUrl = link;
 
+                        // Link format: https://web.pcc.gov.tw/prkms/urlSelector/common/tpam?pk=...
                         if (linkIndex < 3) log(`      processing item ${linkIndex + 1}/${tenderLinks.length}: ${directUrl}`);
 
                         try {
