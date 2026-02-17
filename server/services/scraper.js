@@ -158,8 +158,8 @@ async function searchTenders(keyword, startDate, endDate, onProgress = () => { }
                             }
 
                             if (rowIdx === 0) {
-                                const anchorsInfo = allAnchors.map(a => a.getAttribute('href')?.substring(0, 80)).join(' | ');
-                                firstRowDebug = `cols=${cols.length}, links=[${anchorsInfo}], linkFound=${!!linkEl}, html=${row.outerHTML.substring(0, 500)}`;
+                                const colTexts0 = Array.from(cols).map(c => c.innerText.trim().substring(0, 50));
+                                firstRowDebug = `cols=${cols.length}, colTexts=${JSON.stringify(colTexts0)}, linkFound=${!!linkEl}`;
                             }
 
                             if (linkEl) {
