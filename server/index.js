@@ -31,7 +31,36 @@ const RESULTS_DIR = path.join(DATA_DIR, 'results');
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR);
 if (!fs.existsSync(RESULTS_DIR)) fs.mkdirSync(RESULTS_DIR);
 
+// Log Capture for Cloud Debugging
+const MAX_LOGS = 1000;
+const systemLogs = [];
+const originalLog = console.log;
+const originalError = console.error;
+
+function captureLog(type, args) {
+    const message = args.map(arg => (typeof arg === 'object' ? JSON.stringify(arg) : String(arg))).join(' ');
+    const timestamp = new Date().toISOString();
+    systemLogs.push(`[${timestamp}] [${type}] ${message}`);
+    if (systemLogs.length > MAX_LOGS) systemLogs.shift();
+}
+
+console.log = (...args) => {
+    captureLog('INFO', args);
+    originalLog.apply(console, args);
+};
+
+console.error = (...args) => {
+    captureLog('ERROR', args);
+    originalError.apply(console, args);
+};
+
 // API Routes
+
+// System Logs Endpoint (Must be before catch-all)
+app.get('/api/system-logs', (req, res) => {
+    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+    res.send(systemLogs.join('\n'));
+});
 
 // 1. Search Endpoint - Triggers immediate search
 // SSE Endpoint for Streaming Search
@@ -136,34 +165,6 @@ if (fs.existsSync(clientDistPath)) {
 } else {
     console.log('Client build not found. API mode only.');
 }
-
-// Log Capture for Cloud Debugging
-const MAX_LOGS = 1000;
-const systemLogs = [];
-const originalLog = console.log;
-const originalError = console.error;
-
-function captureLog(type, args) {
-    const message = args.map(arg => (typeof arg === 'object' ? JSON.stringify(arg) : String(arg))).join(' ');
-    const timestamp = new Date().toISOString();
-    systemLogs.push(`[${timestamp}] [${type}] ${message}`);
-    if (systemLogs.length > MAX_LOGS) systemLogs.shift();
-}
-
-console.log = (...args) => {
-    captureLog('INFO', args);
-    originalLog.apply(console, args);
-};
-
-console.error = (...args) => {
-    captureLog('ERROR', args);
-    originalError.apply(console, args);
-};
-
-app.get('/api/system-logs', (req, res) => {
-    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-    res.send(systemLogs.join('\n'));
-});
 
 // Start Server
 app.listen(PORT, () => {
