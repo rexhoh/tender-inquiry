@@ -71,7 +71,7 @@ async function searchTenders(keyword, startDate, endDate, onProgress = () => { }
                 const encodedStart = encodeURIComponent(startDate); // Use original '2026/01/15'
                 const encodedEnd = encodeURIComponent(endDate);
 
-                const searchUrl = `https://web.pcc.gov.tw/prkms/tender/common/basic/readTenderBasic?pageSize=&firstSearch=true&searchType=basic&isBinding=N&isLogIn=N&level_1=on&orgName=&orgId=&tenderName=${encodedKeyword}&tenderId=&tenderType=TENDER_DECLARATION&tenderWay=TENDER_WAY_ALL_DECLARATION&dateType=isDate&tenderStartDate=${encodedStart}&tenderEndDate=${encodedEnd}&radProctrgCate=&policyAdvocacy=`;
+                const searchUrl = `https://web.pcc.gov.tw/prkms/tender/common/basic/readTenderBasic?pageSize=100&firstSearch=true&searchType=basic&isBinding=N&isLogIn=N&level_1=on&orgName=&orgId=&tenderName=${encodedKeyword}&tenderId=&tenderType=TENDER_DECLARATION&tenderWay=TENDER_WAY_ALL_DECLARATION&dateType=isDate&tenderStartDate=${encodedStart}&tenderEndDate=${encodedEnd}&radProctrgCate=&policyAdvocacy=`;
 
                 log(`   → Navigating directly to search results: ${searchUrl}`);
 
@@ -81,17 +81,28 @@ async function searchTenders(keyword, startDate, endDate, onProgress = () => { }
                 });
 
                 try {
-                    await page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 60000 });
+                    await page.goto(searchUrl, { waitUntil: 'networkidle2', timeout: 60000 });
 
-                    // Wait for a clear signal of page load (results OR "no data" OR error)
-                    // We interpret "body" presence as "loaded enough to inspect"
-                    await page.waitForSelector('body', { timeout: 30000 });
+                    // Wait for result rows to appear
+                    try {
+                        await page.waitForSelector('tr.tb_b2', { timeout: 15000 });
+                    } catch (e) {
+                        log(`   ⚠️ No tr.tb_b2 rows found within timeout. Checking page...`);
+                    }
 
-                    // Diagnostic Log: Check what we actually got
-                    const pageTitle = await page.title();
-                    const bodyText = await page.evaluate(() => document.body.innerText.substring(0, 300).replace(/\n/g, ' '));
-                    log(`   🔍 Page Loaded. Title: "${pageTitle}"`);
-                    log(`   📝 Body Preview: "${bodyText}..."`);
+                    // Detect total result count from page
+                    const totalInfo = await page.evaluate(() => {
+                        const bodyText = document.body.innerText;
+                        // Look for pattern like "共113筆" or "共 113 筆"
+                        const match = bodyText.match(/共\s*(\d+)\s*筆/);
+                        return {
+                            total: match ? parseInt(match[1]) : -1,
+                            preview: bodyText.substring(0, 300).replace(/\n/g, ' ')
+                        };
+                    });
+
+                    log(`   🔍 Page Loaded. Total results on site: ${totalInfo.total}`);
+                    log(`   📝 Body Preview: "${totalInfo.preview}..."`);
 
                 } catch (navError) {
                     log(`   ❌ Navigation/Wait Error: ${navError.message}`);
@@ -310,22 +321,29 @@ async function searchTenders(keyword, startDate, endDate, onProgress = () => { }
                     }
 
                     // Check for Next Page
-                    const nextPageBtn = await page.evaluateHandle(() => {
-                        // Look for "Next Page" or "下一頁" link/button
-                        const links = Array.from(document.querySelectorAll('a, span.page'));
-                        return links.find(el => el.innerText.includes('下一頁') || el.innerText.includes('Next'));
+                    const nextPageInfo = await page.evaluate(() => {
+                        // Look for "下一頁" link specifically
+                        const allLinks = Array.from(document.querySelectorAll('a'));
+                        const nextLink = allLinks.find(el => {
+                            const text = el.innerText.trim();
+                            return text === '下一頁' || text.includes('下一頁');
+                        });
+                        if (nextLink && nextLink.href && !nextLink.className.includes('disabled')) {
+                            return { found: true, href: nextLink.href };
+                        }
+                        return { found: false, href: null };
                     });
 
-                    // Evaluate if the button is clickable/exists
-                    const canClickNext = await page.evaluate(el => el && !el.className.includes('disabled') && el.href, nextPageBtn);
-
-                    if (canClickNext) {
+                    if (nextPageInfo.found && nextPageInfo.href) {
                         try {
-                            log(`   → Navigating to next page...`);
-                            await Promise.all([
-                                page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 60000 }),
-                                nextPageBtn.click()
-                            ]);
+                            log(`   → Navigating to next page (${nextPageInfo.href.substring(0, 80)}...)`);
+                            await page.goto(nextPageInfo.href, { waitUntil: 'networkidle2', timeout: 60000 });
+                            // Wait for result rows
+                            try {
+                                await page.waitForSelector('tr.tb_b2', { timeout: 15000 });
+                            } catch (e) {
+                                log(`   ⚠️ No rows on next page within timeout.`);
+                            }
                             pageCount++;
                             if (pageCount > 20) {
                                 log(`   ⚠️ Limit reached (20 pages). Stopping pagination.`);
@@ -336,6 +354,7 @@ async function searchTenders(keyword, startDate, endDate, onProgress = () => { }
                             hasNextPage = false;
                         }
                     } else {
+                        log(`   ℹ️ No more pages (next button not found or disabled).`);
                         hasNextPage = false;
                     }
                 }
