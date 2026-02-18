@@ -14,7 +14,6 @@ async function searchTenders(keyword, startDate, endDate, onProgress = () => { }
     };
 
     log(`🚀 Starting search for: ${keyword}`);
-    log(`Bypassing headless mode check (Verification Mode)`);
 
     const browser = await puppeteer.launch({
         headless: "new",
@@ -33,15 +32,24 @@ async function searchTenders(keyword, startDate, endDate, onProgress = () => { }
     try {
         const page = await browser.newPage();
         await page.setViewport({ width: 1280, height: 800 });
-        // Set User-Agent to avoid simple bot detection
         await page.setUserAgent('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
 
-        // Normalize keywords: Split by ' OR ' (case-insensitive)
-        const keywords = keyword.split(/\s+OR\s+/i).map(k => k.trim()).filter(k => k);
+        // ============================
+        // Parse compound search syntax
+        // ============================
+        // OR  → union (split into groups, merge results)
+        // AND → intersection (search each term, keep only results appearing in ALL)
+        // NOT → exclusion (search main terms, exclude results matching NOT terms)
+        //
+        // Example: "AI AND 系統 OR 資安 NOT 測試"
+        //   Group 1: "AI AND 系統" → search "AI" ∩ search "系統"
+        //   Group 2: "資安 NOT 測試" → search "資安" − results matching "測試"
+
+        const orGroups = keyword.split(/\s+OR\s+/i).map(g => g.trim()).filter(g => g);
         let allResults = [];
         const seenKeys = new Set();
 
-        log(`📋 Parsed keywords: ${JSON.stringify(keywords)}`);
+        log(`📋 Parsed OR groups: ${JSON.stringify(orGroups)}`);
 
         // Helper to convert Gregorian Date (YYYY/MM/DD) to ROC Date (YYY/MM/DD)
         const toROCDate = (dateStr) => {
@@ -49,158 +57,94 @@ async function searchTenders(keyword, startDate, endDate, onProgress = () => { }
             const parts = dateStr.split(/[-/]/);
             if (parts.length === 3) {
                 const year = parseInt(parts[0]);
-                // If year is already 3 digits (e.g. 115), assume it's ROC
                 if (year < 1000) return parts.join('/');
-                // Convert 2026 -> 115
                 const rocYear = year - 1911;
                 return `${rocYear}/${parts[1]}/${parts[2]}`;
             }
             return dateStr;
         };
 
-        for (const [index, subKeyword] of keywords.entries()) {
-            log(`🔍 [${index + 1}/${keywords.length}] Searching for: "${subKeyword}"...`);
+        // ==========================================
+        // Helper: search a single keyword, return []
+        // ==========================================
+        const searchSingleKeyword = async (searchKeyword, label) => {
+            const results = [];
+            log(`   🔎 [${label}] Searching for: "${searchKeyword}"...`);
 
             try {
-                // 1. Construct Search URL (Bypass UI interaction)
-                // Based on user's working URL, the server accepts Gregorian dates in the URL parameters.
-                // URL: ...tenderStartDate=2026%2F01%2F15...
-
-                // Encode parameters
-                const encodedKeyword = encodeURIComponent(subKeyword);
-                const encodedStart = encodeURIComponent(startDate); // Use original '2026/01/15'
+                const encodedKeyword = encodeURIComponent(searchKeyword);
+                const encodedStart = encodeURIComponent(startDate);
                 const encodedEnd = encodeURIComponent(endDate);
 
                 const searchUrl = `https://web.pcc.gov.tw/prkms/tender/common/basic/readTenderBasic?pageSize=100&firstSearch=true&searchType=basic&isBinding=N&isLogIn=N&level_1=on&orgName=&orgId=&tenderName=${encodedKeyword}&tenderId=&tenderType=TENDER_DECLARATION&tenderWay=TENDER_WAY_ALL_DECLARATION&dateType=isDate&tenderStartDate=${encodedStart}&tenderEndDate=${encodedEnd}&radProctrgCate=&policyAdvocacy=`;
 
-                log(`   → Navigating directly to search results: ${searchUrl}`);
-
-                // Set Referer to fool potential checks
                 await page.setExtraHTTPHeaders({
                     'Referer': 'https://web.pcc.gov.tw/prkms/tender/common/basic/indexTenderBasic'
                 });
 
                 try {
                     await page.goto(searchUrl, { waitUntil: 'networkidle2', timeout: 60000 });
-
-                    // Wait for result rows to appear
                     try {
                         await page.waitForSelector('tr.tb_b2, tr.tb_b3', { timeout: 15000 });
                     } catch (e) {
-                        log(`   ⚠️ No tr.tb_b2 rows found within timeout. Checking page...`);
+                        log(`      ⚠️ No result rows found within timeout.`);
                     }
-
-                    // Detect total result count from page
-                    const totalInfo = await page.evaluate(() => {
-                        const bodyText = document.body.innerText;
-                        // Look for pattern like "共113筆" or "共 113 筆"
-                        const match = bodyText.match(/共\s*(\d+)\s*筆/);
-                        return {
-                            total: match ? parseInt(match[1]) : -1,
-                            preview: bodyText.substring(0, 300).replace(/\n/g, ' ')
-                        };
-                    });
-
-                    log(`   🔍 Page Loaded. Total results on site: ${totalInfo.total}`);
-                    log(`   📝 Body Preview: "${totalInfo.preview}..."`);
-
                 } catch (navError) {
-                    log(`   ❌ Navigation/Wait Error: ${navError.message}`);
-                    const content = await page.content();
-                    log(`   📄 HTML Dump (Error): ${content.substring(0, 500)}...`);
+                    log(`      ❌ Navigation Error: ${navError.message}`);
+                    return results;
                 }
 
-                // Get cookies from the main search page to pass to Axios
-                const cookies = await page.cookies();
-                const cookieString = cookies.map(c => `${c.name}=${c.value}`).join('; ');
-
-                // 2. Process Results & Pagination
                 let hasNextPage = true;
                 let pageCount = 1;
 
                 while (hasNextPage) {
-                    log(`   📄 Processing Page ${pageCount}...`);
+                    log(`      📄 Page ${pageCount}...`);
 
-                    // Get items with basic info from the list table
+                    // Extract items from current page
                     const { items: tenderItems, debugInfo } = await page.evaluate(() => {
-                        // Strategy: Find all result rows directly by their CSS class (tb_b2) 
-                        // or by containing urlSelector links, regardless of which table they're in
-
-                        // First try: rows with class tb_b2 OR tb_b3 (alternating row classes)
                         let dataRows = Array.from(document.querySelectorAll('tr.tb_b2, tr.tb_b3'));
 
-                        // Fallback: if no tb_b2 rows, find rows containing urlSelector links
                         if (dataRows.length === 0) {
                             const allLinks = Array.from(document.querySelectorAll('a[href*="urlSelector"]'));
                             const rowSet = new Set();
-                            allLinks.forEach(a => {
-                                const tr = a.closest('tr');
-                                if (tr) rowSet.add(tr);
-                            });
+                            allLinks.forEach(a => { const tr = a.closest('tr'); if (tr) rowSet.add(tr); });
                             dataRows = Array.from(rowSet);
                         }
-
-                        // Second fallback: rows containing pk= links
                         if (dataRows.length === 0) {
                             const allLinks = Array.from(document.querySelectorAll('a[href*="pk="]'));
                             const rowSet = new Set();
-                            allLinks.forEach(a => {
-                                const tr = a.closest('tr');
-                                if (tr) rowSet.add(tr);
-                            });
+                            allLinks.forEach(a => { const tr = a.closest('tr'); if (tr) rowSet.add(tr); });
                             dataRows = Array.from(rowSet);
                         }
 
                         const items = [];
                         let firstRowDebug = '';
 
-                        dataRows.forEach((row, rowIdx) => {
+                        dataRows.forEach((row, ri) => {
                             const cols = row.querySelectorAll('td');
-                            const allAnchors = Array.from(row.querySelectorAll('a[href]'));
-
-                            // Find the detail link
-                            let linkEl = null;
-                            for (const a of allAnchors) {
-                                const href = a.getAttribute('href') || '';
-                                if (href.includes('urlSelector') || href.includes('tenderDetail') || href.includes('pk=')) {
-                                    linkEl = a;
-                                    break;
+                            if (cols.length >= 3) {
+                                const linkEl = row.querySelector('a[href*="urlSelector"], a[href*="tenderDetail"], a[href*="pk="]');
+                                if (ri === 0) {
+                                    const colTexts = Array.from(cols).map(c => c.innerText.trim());
+                                    firstRowDebug = `cols=${cols.length}, colTexts=${JSON.stringify(colTexts.slice(0, 4))}, linkFound=${!!linkEl}`;
                                 }
-                            }
+                                if (linkEl) {
+                                    const colTexts = Array.from(cols).map(c => c.innerText.trim());
+                                    // Column mapping (observed):
+                                    // [0]=Seq, [1]=Agency, [2]=TenderID\nTenderName, [3]=Category
+                                    // [4]=Method, [5]=Type, [6]=PublishDate, [7]=Deadline, [8]=Budget, [9]=Action
+                                    const agencyName = colTexts[1] || '';
+                                    const tenderCell = colTexts[2] || '';
+                                    const tenderParts = tenderCell.split('\n');
+                                    const tenderId = (tenderParts[0] || '').trim();
+                                    const tenderName = (tenderParts.slice(1).join(' ') || '').trim();
+                                    const method = colTexts[4] || '';
+                                    const publishDate = colTexts[6] || '';
+                                    const deadline = colTexts[7] || '';
+                                    const budget = colTexts[8] || '';
 
-                            if (rowIdx === 0) {
-                                const colTexts0 = Array.from(cols).map(c => c.innerText.trim().substring(0, 50));
-                                firstRowDebug = `cols=${cols.length}, colTexts=${JSON.stringify(colTexts0)}, linkFound=${!!linkEl}`;
-                            }
-
-                            if (linkEl) {
-                                const colTexts = Array.from(cols).map(c => c.innerText.trim());
-                                // Actual column mapping (observed):
-                                // [0]=Seq, [1]=Agency, [2]=TenderID\nTenderName, [3]=Category
-                                // [4]=Method, [5]=Type, [6]=PublishDate, [7]=Deadline, [8]=Budget, [9]=Action
-                                const agencyName = colTexts[1] || '';
-
-                                // cols[2] has "TenderID\nTenderName" combined
-                                const tenderCell = colTexts[2] || '';
-                                const tenderParts = tenderCell.split('\n');
-                                const tenderId = (tenderParts[0] || '').trim();
-                                const tenderName = (tenderParts.slice(1).join(' ') || '').trim();
-
-                                const method = colTexts[4] || ''; // 招標方式
-                                const publishDate = colTexts[6] || ''; // 公告日期
-                                const deadline = colTexts[7] || ''; // 截止日期
-                                const budget = colTexts[8] || ''; // 預算金額
-
-                                items.push({
-                                    link: linkEl.href,
-                                    agencyName,
-                                    tenderId,
-                                    tenderName,
-                                    method,
-                                    publishDate,
-                                    deadline,
-                                    budget
-                                });
+                                    items.push({ link: linkEl.href, agencyName, tenderId, tenderName, method, publishDate, deadline, budget });
+                                }
                             }
                         });
 
@@ -210,14 +154,11 @@ async function searchTenders(keyword, startDate, endDate, onProgress = () => { }
                         };
                     });
 
-                    log(`      🔍 Table Debug: ${debugInfo}`);
-                    log(`      Found ${tenderItems.length} items on this page. Extraction using In-Page Fetch...`);
+                    log(`      🔍 ${debugInfo}`);
 
-                    for (const [itemIndex, item] of tenderItems.entries()) {
-                        const directUrl = item.link;
-
-                        // Default to basic info from the list page
-                        let detail = {
+                    // Build detail objects from extracted items
+                    for (const item of tenderItems) {
+                        results.push({
                             agencyName: item.agencyName,
                             tenderId: item.tenderId,
                             tenderName: item.tenderName,
@@ -228,103 +169,12 @@ async function searchTenders(keyword, startDate, endDate, onProgress = () => { }
                             centralGov: '',
                             location: '',
                             contact: '',
-                            detailLink: directUrl
-                        };
-
-                        if (itemIndex < 3) log(`      processing item ${itemIndex + 1}/${tenderItems.length}: ${directUrl}`);
-
-                        try {
-                            // Fetch content directly from within the browser context
-                            const htmlContent = await page.evaluate(async (url) => {
-                                const response = await fetch(url, {
-                                    method: 'GET',
-                                    headers: {
-                                        'Referer': 'https://web.pcc.gov.tw/prkms/tender/common/basic/readTenderBasic'
-                                    }
-                                });
-                                if (!response.ok) throw new Error(`Fetch failed: ${response.status}`);
-                                return await response.text();
-                            }, directUrl);
-
-                            // Check if we got redirected to a block page/captcha
-                            // Captcha often has "validate/init" or specific text
-                            if (htmlContent.includes('validate/init') || htmlContent.includes('撲克牌') || htmlContent.length < 500) {
-                                log(`      ⚠️ Validated/Captcha Page Detected or Empty Content for ${item.tenderId}. Using basic info.`);
-                                // Keep the basic info already in 'detail'
-                            } else {
-                                // Parse with Cheerio (server-side)
-                                const $ = cheerio.load(htmlContent);
-
-                                // Helper to extract text from table cells
-                                const getText = (label) => {
-                                    // Find any element that contains the label text
-                                    // We filter to ensure it's a TH or TD or SPAN inside one
-                                    let found = $(`th, td`).filter((i, el) => $(el).text().replace(/\s+/g, '').includes(label));
-
-                                    if (found.length === 0) return '';
-
-                                    // The value is usually in the NEXT td
-                                    let target = found.first().next('td');
-
-                                    // Sometimes the label is inside a TH and the value is inside the next TD
-                                    if (target.length) {
-                                        return target.text().trim();
-                                    }
-
-                                    // Sometimes the label is in a TD and value is in next TD
-                                    return '';
-                                };
-
-                                // Enhanced extraction - overwrite basic info if detail is better
-                                const fullAgency = getText('機關名稱');
-                                const fullTenderId = getText('標案案號');
-                                const fullTenderName = getText('標案名稱');
-                                const fullDate = getText('招標方式'); // Assuming '招標方式' is near the date or another date field exists
-
-                                if (fullAgency) detail.agencyName = fullAgency;
-                                if (fullTenderId) detail.tenderId = fullTenderId;
-                                if (fullTenderName) detail.tenderName = fullTenderName;
-                                // If a more specific date is found on the detail page, use it
-                                // For now, keeping the list page date unless a better field is identified
-                                // if (fullDate) detail.date = fullDate;
-
-                                detail.budget = getText('預算金額');
-                                detail.centralGov = getText('本採購是否屬中央政府計畫型案件');
-                                detail.location = getText('履約地點');
-                                detail.contact = getText('聯絡人');
-                            }
-
-                            if (itemIndex === 0) {
-                                log(`      🔍 Debug Detail [0]: ${JSON.stringify(detail)}`);
-                                if (!detail.agencyName || !detail.tenderId) {
-                                    log(`      ⚠️ Extraction Failed. Dumping HTML Preview:`);
-                                    log(`      ${htmlContent}`); // Dump full content
-                                }
-                            }
-
-                            const uniqueKey = detail.detailLink || `${detail.tenderId}_${detail.agencyName}`;
-                            if (uniqueKey && !seenKeys.has(uniqueKey)) {
-                                seenKeys.add(uniqueKey);
-                                allResults.push(detail);
-                            }
-
-                        } catch (err) {
-                            log(`      ❌ Error fetching detail ${directUrl}: ${err.message}. Using basic info.`);
-                            // Still save basic info even if fetch failed
-                            const uniqueKey = detail.detailLink || `${detail.tenderId}_${detail.agencyName}`;
-                            if (uniqueKey && !seenKeys.has(uniqueKey)) {
-                                seenKeys.add(uniqueKey);
-                                allResults.push(detail);
-                            }
-                        }
-
-                        // Delay to be polite
-                        await new Promise(r => setTimeout(r, 1500));
+                            detailLink: item.link
+                        });
                     }
 
                     // Check for Next Page
                     const nextPageInfo = await page.evaluate(() => {
-                        // Look for "下一頁" link specifically
                         const allLinks = Array.from(document.querySelectorAll('a'));
                         const nextLink = allLinks.find(el => {
                             const text = el.innerText.trim();
@@ -338,43 +188,103 @@ async function searchTenders(keyword, startDate, endDate, onProgress = () => { }
 
                     if (nextPageInfo.found && nextPageInfo.href) {
                         try {
-                            log(`   → Navigating to next page (${nextPageInfo.href.substring(0, 80)}...)`);
+                            log(`      → Next page...`);
                             await page.goto(nextPageInfo.href, { waitUntil: 'networkidle2', timeout: 60000 });
-                            // Wait for result rows
-                            try {
-                                await page.waitForSelector('tr.tb_b2, tr.tb_b3', { timeout: 15000 });
-                            } catch (e) {
-                                log(`   ⚠️ No rows on next page within timeout.`);
-                            }
+                            try { await page.waitForSelector('tr.tb_b2, tr.tb_b3', { timeout: 15000 }); } catch (e) { }
                             pageCount++;
                             if (pageCount > 20) {
-                                log(`   ⚠️ Limit reached (20 pages). Stopping pagination.`);
+                                log(`      ⚠️ Page limit (20) reached.`);
                                 hasNextPage = false;
                             }
                         } catch (e) {
-                            log(`   ⚠️ Failed to go to next page: ${e.message}`);
+                            log(`      ⚠️ Failed to go to next page: ${e.message}`);
                             hasNextPage = false;
                         }
                     } else {
-                        log(`   ℹ️ No more pages (next button not found or disabled).`);
                         hasNextPage = false;
                     }
                 }
 
-                log(`   ✅ Finished processing keyword "${subKeyword}".`);
-
+                log(`   ✅ "${searchKeyword}" → ${results.length} results`);
             } catch (err) {
-                log(`   ❌ Error during search for "${subKeyword}": ${err.message}`);
-                console.error(err);
-                // Recover browser context if needed (try to go back to search page for next keyword)
+                log(`   ❌ Error searching "${searchKeyword}": ${err.message}`);
                 try { await page.goto('https://web.pcc.gov.tw/prkms/tender/common/basic/indexTenderBasic'); } catch (e) { }
             }
+
+            return results;
+        };
+
+        // ================================
+        // Process each OR group
+        // ================================
+        for (const [gi, group] of orGroups.entries()) {
+            log(`\n📦 Processing OR group ${gi + 1}/${orGroups.length}: "${group}"`);
+
+            // Parse NOT terms: "AI AND 系統 NOT 測試" → positives=["AI","系統"], negatives=["測試"]
+            const notParts = group.split(/\s+NOT\s+/i);
+            const positivePart = notParts[0].trim();
+            const negativeTerms = notParts.slice(1).map(n => n.trim()).filter(n => n);
+
+            // Parse AND terms from the positive part
+            const andTerms = positivePart.split(/\s+AND\s+/i).map(t => t.trim()).filter(t => t);
+
+            log(`   📋 AND terms: ${JSON.stringify(andTerms)}, NOT terms: ${JSON.stringify(negativeTerms)}`);
+
+            if (andTerms.length === 0) continue;
+
+            let groupResults;
+
+            if (andTerms.length === 1) {
+                // Simple search — no AND intersection needed
+                groupResults = await searchSingleKeyword(andTerms[0], `Group ${gi + 1}`);
+            } else {
+                // AND logic: search each term separately, then intersect by detailLink
+                const termResultSets = [];
+                for (const [ti, term] of andTerms.entries()) {
+                    const termResults = await searchSingleKeyword(term, `G${gi + 1} AND-${ti + 1}/${andTerms.length}`);
+                    termResultSets.push(termResults);
+                }
+
+                // Intersect: keep only results whose detailLink appears in ALL sets
+                if (termResultSets.length > 0) {
+                    const firstSet = termResultSets[0];
+                    groupResults = firstSet.filter(item => {
+                        const key = item.detailLink || `${item.tenderId}_${item.agencyName}`;
+                        return termResultSets.every(set =>
+                            set.some(r => (r.detailLink || `${r.tenderId}_${r.agencyName}`) === key)
+                        );
+                    });
+                    log(`   🔗 AND intersection: ${termResultSets.map(s => s.length).join(' ∩ ')} → ${groupResults.length} results`);
+                } else {
+                    groupResults = [];
+                }
+            }
+
+            // Apply NOT filter: exclude results whose text contains any negative term
+            if (negativeTerms.length > 0 && groupResults.length > 0) {
+                const beforeCount = groupResults.length;
+                groupResults = groupResults.filter(item => {
+                    const fullText = `${item.agencyName} ${item.tenderId} ${item.tenderName}`.toLowerCase();
+                    return !negativeTerms.some(neg => fullText.includes(neg.toLowerCase()));
+                });
+                log(`   🚫 NOT filter: ${beforeCount} → ${groupResults.length} (excluded ${beforeCount - groupResults.length})`);
+            }
+
+            // Merge group results into allResults (union), deduplicate
+            for (const detail of groupResults) {
+                const uniqueKey = detail.detailLink || `${detail.tenderId}_${detail.agencyName}`;
+                if (uniqueKey && !seenKeys.has(uniqueKey)) {
+                    seenKeys.add(uniqueKey);
+                    allResults.push(detail);
+                }
+            }
+
+            log(`   📊 Running total after group ${gi + 1}: ${allResults.length} unique results`);
         }
 
         log(`🎉 Search complete! Total unique results: ${allResults.length}`);
 
-
-        // 5. Save to CSV (only if results exist, or empty file)
+        // Save to CSV
         const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
         const filename = `tenders-combined-${timestamp}.csv`;
         const csvPath = path.join(RESULTS_DIR, filename);
