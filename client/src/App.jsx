@@ -29,7 +29,7 @@ function App() {
   ];
 
   return (
-    <div className="min-h-screen" style={{ background: 'var(--bg-primary)' }}>
+    <div className="min-h-screen flex flex-col" style={{ background: 'var(--bg-primary)' }}>
 
       {/* ========== 頂部導覽列 ========== */}
       <header className="sticky top-0 z-50 backdrop-blur-xl" style={{
@@ -81,7 +81,7 @@ function App() {
       </header>
 
       {/* ========== 頁面主內容區 ========== */}
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8 relative z-10">
+      <main className="flex-grow max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8 relative z-10 w-full">
         {/* 搜尋分頁：顯示搜尋表單 + 結果卡片 */}
         {activeTab === 'search' && (
           <div className="space-y-6 animate-fade-in">
@@ -102,6 +102,13 @@ function App() {
           </div>
         )}
       </main>
+
+      {/* ========== 頁尾版權聲明 ========== */}
+      <footer className="py-6 text-center border-t border-[var(--border)] relative z-10" style={{ background: 'var(--bg-card)' }}>
+        <p className="text-sm" style={{ color: 'var(--text-muted)' }}>
+          &copy; {new Date().getFullYear()} TENDER.OS. Rex All rights reserved.
+        </p>
+      </footer>
     </div>
   );
 }
