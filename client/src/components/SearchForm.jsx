@@ -105,7 +105,7 @@ const SearchForm = ({ onResults }) => {
                             <label className="text-sm font-semibold" style={{ color: 'var(--text-secondary)' }}>
                                 公告日期範圍
                             </label>
-                            <div className="flex items-center gap-2 flex-nowrap">
+                            <div className="flex items-center gap-2 flex-nowrap w-full">
                                 <input
                                     id="start-date-input"
                                     type="text"
