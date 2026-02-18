@@ -1,29 +1,51 @@
+/**
+ * ===================================================
+ * 搜尋表單元件（SearchForm）
+ * ===================================================
+ * 
+ * 功能：
+ *   - 提供關鍵字輸入框（含搜尋語法提示）
+ *   - 提供日期區間選擇器（預設最近 7 天）
+ *   - 透過 SSE (EventSource) 即時接收搜尋進度
+ *   - 搜尋完成後將結果回傳給父元件 (onResults)
+ *   - 顯示搜尋歷程日誌（LogViewer）
+ */
+
 import React, { useState } from 'react';
 import { Search, HelpCircle, Loader2, AlertCircle, ArrowRight } from 'lucide-react';
-import { format, subDays } from 'date-fns';
-import LogViewer from './LogViewer';
+import { format, subDays } from 'date-fns'; // 日期工具函式
+import LogViewer from './LogViewer';          // 日誌顯示元件
 
 const SearchForm = ({ onResults }) => {
-    const [keyword, setKeyword] = useState('');
-    const [startDate, setStartDate] = useState(format(subDays(new Date(), 7), 'yyyy-MM-dd'));
-    const [endDate, setEndDate] = useState(format(new Date(), 'yyyy-MM-dd'));
-    const [loading, setLoading] = useState(false);
-    const [error, setError] = useState(null);
-    const [logs, setLogs] = useState([]);
-    const [showTooltip, setShowTooltip] = useState(false);
-    const [showLogs, setShowLogs] = useState(false);
+    // ========== 狀態定義 ==========
+    const [keyword, setKeyword] = useState('');                                      // 搜尋關鍵字
+    const [startDate, setStartDate] = useState(format(subDays(new Date(), 7), 'yyyy-MM-dd')); // 起始日期（預設 7 天前）
+    const [endDate, setEndDate] = useState(format(new Date(), 'yyyy-MM-dd'));         // 結束日期（預設今天）
+    const [loading, setLoading] = useState(false);   // 是否正在搜尋中
+    const [error, setError] = useState(null);        // 錯誤訊息
+    const [logs, setLogs] = useState([]);            // 搜尋進度日誌陣列
+    const [showTooltip, setShowTooltip] = useState(false); // 語法提示框顯示狀態
+    const [showLogs, setShowLogs] = useState(false);       // 日誌面板展開狀態
 
-    // Convert yyyy-MM-dd to yyyy/MM/dd for API
+    /**
+     * 日期格式轉換：yyyy-MM-dd → yyyy/MM/dd
+     * API 端需要斜線格式
+     */
     const toApiDate = (d) => d.replace(/-/g, '/');
 
+    /**
+     * 處理搜尋提交
+     * 使用 SSE (Server-Sent Events) 方式連接後端，即時接收搜尋進度
+     */
     const handleSearch = async (e) => {
         e.preventDefault();
         setLoading(true);
         setError(null);
         setLogs([]);
         setShowLogs(true);
-        onResults([]);
+        onResults([]); // 清空先前的結果
 
+        // 組裝查詢參數並建立 SSE 連線
         const queryParams = new URLSearchParams({
             keyword,
             startDate: toApiDate(startDate),
@@ -31,21 +53,26 @@ const SearchForm = ({ onResults }) => {
         }).toString();
         const eventSource = new EventSource(`/api/search-stream?${queryParams}`);
 
+        // SSE 連線建立
         eventSource.onopen = () => {
             setLogs(prev => [...prev, '⚡ 連線建立，搜尋啟動中...']);
         };
 
+        // SSE 接收訊息
         eventSource.onmessage = (event) => {
             try {
                 const data = JSON.parse(event.data);
                 if (data.type === 'log') {
+                    // 進度日誌
                     setLogs(prev => [...prev, data.message]);
                 } else if (data.type === 'complete') {
+                    // 搜尋完成：回傳結果並關閉連線
                     onResults(data.results);
                     setLogs(prev => [...prev, `✅ 搜尋完成！共 ${data.results.length} 筆資料`]);
                     setLoading(false);
                     eventSource.close();
                 } else if (data.type === 'error') {
+                    // 搜尋錯誤
                     setError(data.message);
                     setLogs(prev => [...prev, `❌ 錯誤: ${data.message}`]);
                     setLoading(false);
@@ -56,6 +83,7 @@ const SearchForm = ({ onResults }) => {
             }
         };
 
+        // SSE 連線錯誤處理
         eventSource.onerror = () => {
             if (loading) {
                 setError('串流連線中斷');
@@ -70,12 +98,13 @@ const SearchForm = ({ onResults }) => {
             <div className="card">
                 <form onSubmit={handleSearch} className="space-y-6">
 
-                    {/* Keyword */}
+                    {/* ========== 關鍵字輸入區 ========== */}
                     <div className="space-y-2">
                         <div className="flex items-center gap-2">
                             <label htmlFor="keyword-input" className="text-base font-semibold" style={{ color: 'var(--text-secondary)' }}>
                                 搜尋關鍵字
                             </label>
+                            {/* 語法說明提示按鈕 */}
                             <div className="relative">
                                 <button
                                     type="button"
@@ -85,6 +114,7 @@ const SearchForm = ({ onResults }) => {
                                 >
                                     <HelpCircle className="w-4 h-4" />
                                 </button>
+                                {/* 語法說明彈出框 */}
                                 {showTooltip && (
                                     <div className="absolute left-0 top-full mt-2 w-80 p-4 rounded-xl text-sm z-50 shadow-2xl"
                                         style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-hover)', color: 'var(--text-secondary)' }}>
@@ -108,13 +138,14 @@ const SearchForm = ({ onResults }) => {
                         />
                     </div>
 
-                    {/* Date + Button */}
+                    {/* ========== 日期範圍 + 搜尋按鈕 ========== */}
                     <div className="flex flex-col sm:flex-row gap-4 items-stretch sm:items-end">
                         <div className="flex-1 space-y-2">
                             <label className="text-base font-semibold" style={{ color: 'var(--text-secondary)' }}>
                                 公告日期範圍
                             </label>
                             <div className="flex items-center gap-3 flex-nowrap w-full">
+                                {/* 起始日期 */}
                                 <input
                                     id="start-date-input"
                                     type="date"
@@ -124,6 +155,7 @@ const SearchForm = ({ onResults }) => {
                                     style={{ width: 'auto' }}
                                 />
                                 <ArrowRight className="w-5 h-5 flex-shrink-0" style={{ color: 'var(--text-muted)' }} />
+                                {/* 結束日期 */}
                                 <input
                                     id="end-date-input"
                                     type="date"
@@ -135,6 +167,7 @@ const SearchForm = ({ onResults }) => {
                             </div>
                         </div>
 
+                        {/* 搜尋按鈕 */}
                         <button
                             id="search-button"
                             type="submit"
@@ -155,7 +188,7 @@ const SearchForm = ({ onResults }) => {
                         </button>
                     </div>
 
-                    {/* Error */}
+                    {/* ========== 錯誤提示 ========== */}
                     {error && (
                         <div className="flex items-center gap-3 text-base rounded-xl p-4"
                             style={{
@@ -170,7 +203,7 @@ const SearchForm = ({ onResults }) => {
                 </form>
             </div>
 
-            {/* Log toggle + viewer */}
+            {/* ========== 搜尋歷程日誌 ========== */}
             {logs.length > 0 && (
                 <LogViewer logs={logs} showLogs={showLogs} onToggle={() => setShowLogs(!showLogs)} />
             )}

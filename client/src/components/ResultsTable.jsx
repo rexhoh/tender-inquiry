@@ -1,12 +1,26 @@
+/**
+ * ===================================================
+ * 搜尋結果卡片元件（ResultsTable）
+ * ===================================================
+ * 
+ * 功能：
+ *   - 以三欄卡片 Grid 顯示搜尋結果
+ *   - 支援文字篩選（即時過濾）
+ *   - 分頁功能（每頁 12 筆）
+ *   - CSV 匯出下載（前端產生，含 BOM 支援中文）
+ *   - 每張卡片顯示：機關、標案案號/名稱、招標方式、金額、日期、詳細連結
+ */
+
 import React, { useState } from 'react';
 import { Download, ExternalLink, ChevronLeft, ChevronRight, Search, DollarSign, Building2, Clock } from 'lucide-react';
 
-const ITEMS_PER_PAGE = 12;
+const ITEMS_PER_PAGE = 12; // 每頁顯示筆數
 
 const ResultsTable = ({ results }) => {
-    const [currentPage, setCurrentPage] = useState(1);
-    const [filterText, setFilterText] = useState('');
+    const [currentPage, setCurrentPage] = useState(1);   // 目前頁碼
+    const [filterText, setFilterText] = useState('');      // 篩選文字
 
+    // ========== 空狀態 ==========
     if (!results || results.length === 0) {
         return (
             <div className="card text-center py-16" style={{ color: 'var(--text-muted)', borderStyle: 'dashed' }}>
@@ -16,17 +30,24 @@ const ResultsTable = ({ results }) => {
         );
     }
 
+    // ========== 文字篩選 ==========
+    // 篩選範圍：機關名稱、標案案號、標案名稱
     const filtered = filterText
         ? results.filter(r =>
             `${r.agencyName} ${r.tenderId} ${r.tenderName}`.toLowerCase().includes(filterText.toLowerCase())
         )
         : results;
 
+    // ========== 分頁計算 ==========
     const totalPages = Math.ceil(filtered.length / ITEMS_PER_PAGE);
     const safeCurrentPage = Math.min(currentPage, totalPages || 1);
     const startIdx = (safeCurrentPage - 1) * ITEMS_PER_PAGE;
     const pageItems = filtered.slice(startIdx, startIdx + ITEMS_PER_PAGE);
 
+    /**
+     * CSV 下載處理
+     * 在前端組裝 CSV 字串，加上 BOM（\ufeff）確保 Excel 正確顯示中文
+     */
     const handleDownload = () => {
         const headers = ['機關名稱', '標案案號', '標案名稱', '招標方式', '公告日期', '截止日期', '預算金額', '詳細連結'];
         const keys = ['agencyName', 'tenderId', 'tenderName', 'method', 'publishDate', 'deadline', 'budget', 'detailLink'];
@@ -46,13 +67,14 @@ const ResultsTable = ({ results }) => {
 
     return (
         <div className="space-y-4">
-            {/* Toolbar */}
+            {/* ========== 工具列：結果數量 + 篩選框 + CSV 下載 ========== */}
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
                 <div className="flex items-center gap-3">
                     <h2 className="text-lg font-semibold text-white">搜尋結果</h2>
                     <span className="badge badge-blue">{filtered.length} 筆</span>
                 </div>
                 <div className="flex items-center gap-3 w-full sm:w-auto">
+                    {/* 即時篩選輸入框 */}
                     <div className="relative flex-1 sm:flex-initial">
                         <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4" style={{ color: 'var(--text-muted)' }} />
                         <input
@@ -63,6 +85,7 @@ const ResultsTable = ({ results }) => {
                             className="input-field pl-10 sm:w-56"
                         />
                     </div>
+                    {/* CSV 下載按鈕 */}
                     <button
                         id="export-csv-button"
                         onClick={handleDownload}
@@ -74,11 +97,11 @@ const ResultsTable = ({ results }) => {
                 </div>
             </div>
 
-            {/* Grid Cards */}
+            {/* ========== 結果卡片 Grid ========== */}
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
                 {pageItems.map((item, index) => (
                     <div key={index} className="card group hover:border-blue-500/20 transition-all duration-200 flex flex-col">
-                        {/* Agency */}
+                        {/* 機關名稱 */}
                         <div className="flex items-start gap-2 mb-3">
                             <Building2 className="w-4 h-4 mt-0.5 flex-shrink-0" style={{ color: 'var(--text-muted)' }} />
                             <span className="text-sm truncate" style={{ color: 'var(--text-secondary)' }}>
@@ -86,7 +109,7 @@ const ResultsTable = ({ results }) => {
                             </span>
                         </div>
 
-                        {/* Tender Info */}
+                        {/* 標案案號 + 名稱 */}
                         <div className="mb-3 flex-1">
                             <div className="font-mono text-xs text-blue-400 font-medium mb-1">{item.tenderId}</div>
                             <div className="text-base font-medium line-clamp-2 leading-snug" style={{ color: 'rgba(255,255,255,0.9)' }}>
@@ -94,7 +117,7 @@ const ResultsTable = ({ results }) => {
                             </div>
                         </div>
 
-                        {/* Method + Budget */}
+                        {/* 招標方式 + 預算金額 */}
                         <div className="flex items-center gap-3 mb-3 flex-wrap">
                             {item.method && <span className="tag">{item.method}</span>}
                             {item.budget && (
@@ -105,7 +128,7 @@ const ResultsTable = ({ results }) => {
                             )}
                         </div>
 
-                        {/* Dates + Link */}
+                        {/* 日期 + 查看連結 */}
                         <div className="flex items-center justify-between pt-3" style={{ borderTop: '1px solid var(--border)' }}>
                             <div className="flex items-center gap-4 text-sm font-mono">
                                 <div className="flex items-center gap-1.5" style={{ color: 'var(--text-muted)' }}>
@@ -118,6 +141,7 @@ const ResultsTable = ({ results }) => {
                                     </span>
                                 )}
                             </div>
+                            {/* 外部連結：前往政府電子採購網 */}
                             {item.detailLink && (
                                 <a
                                     href={item.detailLink}
@@ -137,13 +161,15 @@ const ResultsTable = ({ results }) => {
                 ))}
             </div>
 
-            {/* Pagination */}
+            {/* ========== 分頁導覽 ========== */}
             {totalPages > 1 && (
                 <div className="flex items-center justify-between pt-2">
+                    {/* 頁碼資訊 */}
                     <div className="text-sm font-mono" style={{ color: 'var(--text-muted)' }}>
                         第 {safeCurrentPage}/{totalPages} 頁
                     </div>
                     <div className="flex items-center gap-1.5">
+                        {/* 上一頁按鈕 */}
                         <button
                             onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
                             disabled={safeCurrentPage === 1}
@@ -152,6 +178,7 @@ const ResultsTable = ({ results }) => {
                         >
                             <ChevronLeft className="w-5 h-5" />
                         </button>
+                        {/* 頁碼按鈕（最多顯示 5 個） */}
                         {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
                             let page;
                             if (totalPages <= 5) page = i + 1;
@@ -173,6 +200,7 @@ const ResultsTable = ({ results }) => {
                                 </button>
                             );
                         })}
+                        {/* 下一頁按鈕 */}
                         <button
                             onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
                             disabled={safeCurrentPage === totalPages}

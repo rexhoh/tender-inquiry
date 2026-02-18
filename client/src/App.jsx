@@ -1,14 +1,27 @@
+/**
+ * ===================================================
+ * 政府標案查詢系統 — 前端主應用程式
+ * ===================================================
+ * 
+ * 功能：
+ *   - 頂部導覽列：包含 Logo 與分頁切換（搜尋 / 管理 / 排程）
+ *   - 依照 activeTab 狀態切換顯示對應的元件
+ *   - 使用 lucide-react 圖示庫
+ */
+
 import React, { useState } from 'react';
-import SearchForm from './components/SearchForm';
-import ResultsTable from './components/ResultsTable';
-import ScheduleManager from './components/ScheduleManager';
-import HistoryManager from './components/HistoryManager';
-import { Search, Calendar, Database, FolderOpen } from 'lucide-react';
+import SearchForm from './components/SearchForm';         // 搜尋表單元件
+import ResultsTable from './components/ResultsTable';     // 搜尋結果卡片元件
+import ScheduleManager from './components/ScheduleManager'; // 排程管理元件
+import HistoryManager from './components/HistoryManager';   // 搜尋記錄管理元件
+import { Search, Calendar, Database, FolderOpen } from 'lucide-react'; // 圖示
 
 function App() {
-  const [activeTab, setActiveTab] = useState('search');
-  const [results, setResults] = useState([]);
+  // ========== 狀態管理 ==========
+  const [activeTab, setActiveTab] = useState('search'); // 當前分頁：'search' | 'history' | 'schedule'
+  const [results, setResults] = useState([]);           // 搜尋結果資料
 
+  // 分頁設定：key（識別碼）、label（顯示文字）、icon（圖示元件）
   const tabs = [
     { key: 'search', label: '搜尋', icon: Search },
     { key: 'history', label: '管理', icon: FolderOpen },
@@ -18,15 +31,15 @@ function App() {
   return (
     <div className="min-h-screen" style={{ background: 'var(--bg-primary)' }}>
 
-      {/* Header */}
+      {/* ========== 頂部導覽列 ========== */}
       <header className="sticky top-0 z-50 backdrop-blur-xl" style={{
         borderBottom: '1px solid var(--border)',
-        background: 'rgba(11, 17, 32, 0.9)',
+        background: 'rgba(11, 17, 32, 0.9)', // 半透明暗色背景
       }}>
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-16 sm:h-[72px]">
 
-            {/* Logo */}
+            {/* Logo 區塊 */}
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-xl flex items-center justify-center"
                 style={{ background: 'var(--accent-glow)', border: '1px solid rgba(59,130,246,0.25)' }}>
@@ -42,7 +55,7 @@ function App() {
               </div>
             </div>
 
-            {/* Tabs */}
+            {/* 分頁切換導覽 */}
             <nav className="flex rounded-xl p-1 gap-1" style={{ background: 'var(--bg-card)' }}>
               {tabs.map(tab => (
                 <button
@@ -67,19 +80,22 @@ function App() {
         </div>
       </header>
 
-      {/* Page Content */}
+      {/* ========== 頁面主內容區 ========== */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8 relative z-10">
+        {/* 搜尋分頁：顯示搜尋表單 + 結果卡片 */}
         {activeTab === 'search' && (
           <div className="space-y-6 animate-fade-in">
             <SearchForm onResults={setResults} />
             <ResultsTable results={results} />
           </div>
         )}
+        {/* 管理分頁：顯示搜尋記錄管理 */}
         {activeTab === 'history' && (
           <div className="animate-fade-in">
             <HistoryManager />
           </div>
         )}
+        {/* 排程分頁：顯示排程管理 */}
         {activeTab === 'schedule' && (
           <div className="animate-fade-in">
             <ScheduleManager />
