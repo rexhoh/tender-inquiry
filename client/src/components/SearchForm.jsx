@@ -105,13 +105,13 @@ const SearchForm = ({ onResults }) => {
                             <label className="text-sm font-semibold" style={{ color: 'var(--text-secondary)' }}>
                                 公告日期範圍
                             </label>
-                            <div className="flex items-center gap-2">
+                            <div className="flex items-center gap-2 flex-nowrap">
                                 <input
                                     id="start-date-input"
                                     type="text"
                                     value={startDate}
                                     onChange={(e) => setStartDate(e.target.value)}
-                                    className="input-field text-center font-mono"
+                                    className="input-field text-center font-mono flex-1 min-w-0"
                                 />
                                 <ArrowRight className="w-4 h-4 flex-shrink-0" style={{ color: 'var(--text-muted)' }} />
                                 <input
@@ -119,7 +119,7 @@ const SearchForm = ({ onResults }) => {
                                     type="text"
                                     value={endDate}
                                     onChange={(e) => setEndDate(e.target.value)}
-                                    className="input-field text-center font-mono"
+                                    className="input-field text-center font-mono flex-1 min-w-0"
                                 />
                             </div>
                         </div>
