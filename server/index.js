@@ -28,8 +28,22 @@ app.use(express.json());
 // Ensure data directories exist
 const DATA_DIR = path.join(__dirname, 'data');
 const RESULTS_DIR = path.join(DATA_DIR, 'results');
+const HISTORY_FILE = path.join(DATA_DIR, 'search_history.json');
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR);
 if (!fs.existsSync(RESULTS_DIR)) fs.mkdirSync(RESULTS_DIR);
+if (!fs.existsSync(HISTORY_FILE)) fs.writeFileSync(HISTORY_FILE, '[]');
+
+// Helper: read/write search history
+function readHistory() {
+    try {
+        return JSON.parse(fs.readFileSync(HISTORY_FILE, 'utf8'));
+    } catch {
+        return [];
+    }
+}
+function writeHistory(data) {
+    fs.writeFileSync(HISTORY_FILE, JSON.stringify(data, null, 2));
+}
 
 // Log Capture for Cloud Debugging
 const MAX_LOGS = 1000;
@@ -56,16 +70,14 @@ console.error = (...args) => {
 
 // API Routes
 
-// System Logs Endpoint (Must be before catch-all)
+// System Logs Endpoint
 app.get('/api/system-logs', (req, res) => {
     res.setHeader('Content-Type', 'text/plain; charset=utf-8');
     res.send(systemLogs.join('\n'));
 });
 
-// 1. Search Endpoint - Triggers immediate search
-// SSE Endpoint for Streaming Search
+// 1. Search Endpoint - SSE Streaming
 app.get('/api/search-stream', (req, res) => {
-    // Set headers for SSE
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
@@ -82,36 +94,61 @@ app.get('/api/search-stream', (req, res) => {
     const { searchTenders } = require('./services/scraper');
 
     searchTenders(keyword, startDate, endDate, (logMessage) => {
-        // Send log message to client
         res.write(`data: ${JSON.stringify({ type: 'log', message: logMessage })}\n\n`);
     })
         .then((results) => {
-            // Send final results
+            // Save to search history
+            const historyEntry = {
+                id: Date.now().toString(),
+                type: 'immediate',
+                keyword,
+                startDate: startDate || '',
+                endDate: endDate || '',
+                resultCount: results.length,
+                results: results,
+                createdAt: new Date().toISOString(),
+            };
+            const history = readHistory();
+            history.unshift(historyEntry);
+            // Keep max 100 entries
+            if (history.length > 100) history.length = 100;
+            writeHistory(history);
+
             res.write(`data: ${JSON.stringify({ type: 'complete', results })}\n\n`);
             res.end();
         })
         .catch((err) => {
-            // Send error
             res.write(`data: ${JSON.stringify({ type: 'error', message: err.message })}\n\n`);
             res.end();
         });
 
-    // Handle client disconnect
     req.on('close', () => {
-        // Clean up if needed (e.g. stop puppeteer if feasible, though hard to cancel promises mid-flight specific to this req)
         console.log('Client disconnected from stream');
     });
 });
 
-// Backward compatibility for existing non-stream calls (if any)
+// Backward compatibility
 app.post('/api/search', async (req, res) => {
     try {
         const { keyword, startDate, endDate } = req.body;
         console.log(`Received search request: ${keyword}, date: ${startDate}-${endDate}`);
-
-        // Run scraper asynchronously or wait? For immediate feedback, maybe wait for a bit or return job ID.
-        // For simplicity in this version, we'll await the result (might be slow).
         const results = await scraperService.searchTenders(keyword, startDate, endDate);
+
+        // Save to history
+        const historyEntry = {
+            id: Date.now().toString(),
+            type: 'immediate',
+            keyword,
+            startDate: startDate || '',
+            endDate: endDate || '',
+            resultCount: results.length,
+            results: results,
+            createdAt: new Date().toISOString(),
+        };
+        const history = readHistory();
+        history.unshift(historyEntry);
+        if (history.length > 100) history.length = 100;
+        writeHistory(history);
 
         res.json({ success: true, count: results.length, data: results });
     } catch (error) {
@@ -128,7 +165,7 @@ app.get('/api/schedules', (req, res) => {
 
 app.post('/api/schedules', (req, res) => {
     try {
-        const { keyword, frequency } = req.body; // frequency: 'daily', 'weekly'
+        const { keyword, frequency } = req.body;
         const job = schedulerService.addJob(keyword, frequency);
         res.json({ success: true, job });
     } catch (error) {
@@ -145,7 +182,44 @@ app.delete('/api/schedules/:id', (req, res) => {
     }
 });
 
-// 3. Results/Download Endpoint
+// 3. Search History Endpoints
+app.get('/api/history', (req, res) => {
+    const history = readHistory();
+    // Return summaries (without full results for list view)
+    const summaries = history.map(({ results, ...rest }) => ({
+        ...rest,
+    }));
+    res.json(summaries);
+});
+
+app.get('/api/history/:id', (req, res) => {
+    const history = readHistory();
+    const entry = history.find(h => h.id === req.params.id);
+    if (entry) {
+        res.json(entry);
+    } else {
+        res.status(404).json({ success: false, error: 'History entry not found' });
+    }
+});
+
+app.delete('/api/history/:id', (req, res) => {
+    let history = readHistory();
+    const idx = history.findIndex(h => h.id === req.params.id);
+    if (idx !== -1) {
+        history.splice(idx, 1);
+        writeHistory(history);
+        res.json({ success: true });
+    } else {
+        res.status(404).json({ success: false, error: 'History entry not found' });
+    }
+});
+
+app.delete('/api/history', (req, res) => {
+    writeHistory([]);
+    res.json({ success: true });
+});
+
+// 4. Results/Download Endpoint
 app.get('/api/results/:filename', (req, res) => {
     const filepath = path.join(RESULTS_DIR, req.params.filename);
     if (fs.existsSync(filepath)) {
@@ -170,6 +244,5 @@ if (fs.existsSync(clientDistPath)) {
 app.listen(PORT, () => {
     const msg = `Server running on http://localhost:${PORT}`;
     console.log(msg);
-    // Initialize saved schedules
     schedulerService.init();
 });

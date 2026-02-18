@@ -5,21 +5,30 @@ import LogViewer from './LogViewer';
 
 const SearchForm = ({ onResults }) => {
     const [keyword, setKeyword] = useState('');
-    const [startDate, setStartDate] = useState(format(subDays(new Date(), 7), 'yyyy/MM/dd'));
-    const [endDate, setEndDate] = useState(format(new Date(), 'yyyy/MM/dd'));
+    const [startDate, setStartDate] = useState(format(subDays(new Date(), 7), 'yyyy-MM-dd'));
+    const [endDate, setEndDate] = useState(format(new Date(), 'yyyy-MM-dd'));
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState(null);
     const [logs, setLogs] = useState([]);
     const [showTooltip, setShowTooltip] = useState(false);
+    const [showLogs, setShowLogs] = useState(false);
+
+    // Convert yyyy-MM-dd to yyyy/MM/dd for API
+    const toApiDate = (d) => d.replace(/-/g, '/');
 
     const handleSearch = async (e) => {
         e.preventDefault();
         setLoading(true);
         setError(null);
         setLogs([]);
+        setShowLogs(true);
         onResults([]);
 
-        const queryParams = new URLSearchParams({ keyword, startDate, endDate }).toString();
+        const queryParams = new URLSearchParams({
+            keyword,
+            startDate: toApiDate(startDate),
+            endDate: toApiDate(endDate),
+        }).toString();
         const eventSource = new EventSource(`/api/search-stream?${queryParams}`);
 
         eventSource.onopen = () => {
@@ -59,12 +68,12 @@ const SearchForm = ({ onResults }) => {
     return (
         <div className="space-y-4">
             <div className="card">
-                <form onSubmit={handleSearch} className="space-y-5">
+                <form onSubmit={handleSearch} className="space-y-6">
 
                     {/* Keyword */}
                     <div className="space-y-2">
                         <div className="flex items-center gap-2">
-                            <label htmlFor="keyword-input" className="text-sm font-semibold" style={{ color: 'var(--text-secondary)' }}>
+                            <label htmlFor="keyword-input" className="text-base font-semibold" style={{ color: 'var(--text-secondary)' }}>
                                 搜尋關鍵字
                             </label>
                             <div className="relative">
@@ -74,13 +83,13 @@ const SearchForm = ({ onResults }) => {
                                     className="hover:text-blue-400 transition-colors"
                                     style={{ color: 'var(--text-muted)' }}
                                 >
-                                    <HelpCircle className="w-3.5 h-3.5" />
+                                    <HelpCircle className="w-4 h-4" />
                                 </button>
                                 {showTooltip && (
-                                    <div className="absolute left-0 top-full mt-2 w-72 p-3 rounded-lg text-xs z-50 shadow-xl"
+                                    <div className="absolute left-0 top-full mt-2 w-80 p-4 rounded-xl text-sm z-50 shadow-2xl"
                                         style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-hover)', color: 'var(--text-secondary)' }}>
-                                        <p className="font-semibold text-blue-400 mb-2">搜尋語法說明</p>
-                                        <div className="space-y-1.5 font-mono text-[11px]">
+                                        <p className="font-semibold text-blue-400 mb-2 text-sm">搜尋語法說明</p>
+                                        <div className="space-y-2 font-mono text-sm">
                                             <p><span className="text-emerald-400 font-bold">OR</span> → 聯集：<span style={{ color: 'var(--text-muted)' }}>AI OR 資安</span></p>
                                             <p><span className="text-amber-400 font-bold">AND</span> → 交集：<span style={{ color: 'var(--text-muted)' }}>AI AND 系統</span></p>
                                             <p><span className="text-red-400 font-bold">NOT</span> → 排除：<span style={{ color: 'var(--text-muted)' }}>AI NOT 醫療</span></p>
@@ -102,22 +111,22 @@ const SearchForm = ({ onResults }) => {
                     {/* Date + Button */}
                     <div className="flex flex-col sm:flex-row gap-4 items-stretch sm:items-end">
                         <div className="flex-1 space-y-2">
-                            <label className="text-sm font-semibold" style={{ color: 'var(--text-secondary)' }}>
+                            <label className="text-base font-semibold" style={{ color: 'var(--text-secondary)' }}>
                                 公告日期範圍
                             </label>
-                            <div className="flex items-center gap-2 flex-nowrap w-full">
+                            <div className="flex items-center gap-3 flex-nowrap w-full">
                                 <input
                                     id="start-date-input"
-                                    type="text"
+                                    type="date"
                                     value={startDate}
                                     onChange={(e) => setStartDate(e.target.value)}
                                     className="input-field text-center font-mono flex-1 min-w-0"
                                     style={{ width: 'auto' }}
                                 />
-                                <ArrowRight className="w-4 h-4 flex-shrink-0" style={{ color: 'var(--text-muted)' }} />
+                                <ArrowRight className="w-5 h-5 flex-shrink-0" style={{ color: 'var(--text-muted)' }} />
                                 <input
                                     id="end-date-input"
-                                    type="text"
+                                    type="date"
                                     value={endDate}
                                     onChange={(e) => setEndDate(e.target.value)}
                                     className="input-field text-center font-mono flex-1 min-w-0"
@@ -130,16 +139,16 @@ const SearchForm = ({ onResults }) => {
                             id="search-button"
                             type="submit"
                             disabled={loading || !keyword.trim()}
-                            className="btn-primary sm:min-w-[140px]"
+                            className="btn-primary sm:min-w-[160px]"
                         >
                             {loading ? (
                                 <>
-                                    <Loader2 className="w-4 h-4 animate-spin" />
+                                    <Loader2 className="w-5 h-5 animate-spin" />
                                     搜尋中...
                                 </>
                             ) : (
                                 <>
-                                    <Search className="w-4 h-4" />
+                                    <Search className="w-5 h-5" />
                                     開始搜尋
                                 </>
                             )}
@@ -148,20 +157,23 @@ const SearchForm = ({ onResults }) => {
 
                     {/* Error */}
                     {error && (
-                        <div className="flex items-center gap-2 text-sm rounded-lg p-3"
+                        <div className="flex items-center gap-3 text-base rounded-xl p-4"
                             style={{
                                 background: 'rgba(239,68,68,0.08)',
                                 border: '1px solid rgba(239,68,68,0.2)',
                                 color: '#f87171',
                             }}>
-                            <AlertCircle className="w-4 h-4 flex-shrink-0" />
+                            <AlertCircle className="w-5 h-5 flex-shrink-0" />
                             {error}
                         </div>
                     )}
                 </form>
             </div>
 
-            <LogViewer logs={logs} />
+            {/* Log toggle + viewer */}
+            {logs.length > 0 && (
+                <LogViewer logs={logs} showLogs={showLogs} onToggle={() => setShowLogs(!showLogs)} />
+            )}
         </div>
     );
 };
