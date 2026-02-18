@@ -46,7 +46,11 @@ function readHistory() {
  * @param {Array} data - 歷史記錄陣列
  */
 function writeHistory(data) {
-    fs.writeFileSync(HISTORY_FILE, JSON.stringify(data, null, 2));
+    try {
+        fs.writeFileSync(HISTORY_FILE, JSON.stringify(data, null, 2));
+    } catch (error) {
+        console.error('Failed to save search history:', error);
+    }
 }
 
 // ========== 排程持久化 ==========
@@ -56,16 +60,21 @@ function writeHistory(data) {
  * 注意：jobRef（node-schedule 實例）不會被序列化
  */
 function saveSchedules() {
-    const data = Object.values(jobs).map(j => ({
-        id: j.id,
-        keyword: j.keyword,
-        frequency: j.frequency,
-        hour: j.hour,
-        minute: j.minute,
-        dayOfWeek: j.dayOfWeek,
-        createdAt: j.createdAt,
-    }));
-    fs.writeFileSync(SCHEDULE_FILE, JSON.stringify(data, null, 2));
+    try {
+        const data = Object.values(jobs).map(j => ({
+            id: j.id,
+            keyword: j.keyword,
+            frequency: j.frequency,
+            hour: j.hour,
+            minute: j.minute,
+            dayOfWeek: j.dayOfWeek,
+            createdAt: j.createdAt,
+        }));
+        fs.writeFileSync(SCHEDULE_FILE, JSON.stringify(data, null, 2));
+        console.log(`Saved ${data.length} schedules to disk.`);
+    } catch (error) {
+        console.error('Failed to save schedules:', error);
+    }
 }
 
 // ========== 初始化（伺服器啟動時呼叫） ==========
@@ -76,15 +85,19 @@ function saveSchedules() {
  */
 function init() {
     if (fs.existsSync(SCHEDULE_FILE)) {
-        const data = JSON.parse(fs.readFileSync(SCHEDULE_FILE, 'utf8'));
-        data.forEach(jobData => {
-            // 向下相容：舊版排程可能沒有 hour/minute 欄位
-            if (jobData.hour === undefined) jobData.hour = 9;
-            if (jobData.minute === undefined) jobData.minute = 0;
-            if (jobData.frequency === 'weekly' && jobData.dayOfWeek === undefined) jobData.dayOfWeek = 1;
-            scheduleJobFromData(jobData);
-        });
-        console.log(`Loaded ${data.length} schedules.`);
+        try {
+            const data = JSON.parse(fs.readFileSync(SCHEDULE_FILE, 'utf8'));
+            data.forEach(jobData => {
+                // 向下相容：舊版排程可能沒有 hour/minute 欄位
+                if (jobData.hour === undefined) jobData.hour = 9;
+                if (jobData.minute === undefined) jobData.minute = 0;
+                if (jobData.frequency === 'weekly' && jobData.dayOfWeek === undefined) jobData.dayOfWeek = 1;
+                scheduleJobFromData(jobData);
+            });
+            console.log(`Loaded ${data.length} schedules.`);
+        } catch (e) {
+            console.error('Failed to load schedules:', e);
+        }
     }
 }
 
@@ -224,13 +237,16 @@ function addJob(keyword, frequency, hour = 9, minute = 0, dayOfWeek = 1) {
  * @throws {Error} 若排程不存在
  */
 function removeJob(id) {
+    console.log(`Attempting to remove job ${id}...`);
     if (jobs[id]) {
         if (jobs[id].jobRef) {
             jobs[id].jobRef.cancel(); // 取消 node-schedule 排程
         }
         delete jobs[id];
         saveSchedules(); // 更新磁碟
+        console.log(`Job ${id} removed successfully.`);
     } else {
+        console.warn(`Job ${id} not found.`);
         throw new Error('Job not found');
     }
 }
