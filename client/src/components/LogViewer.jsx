@@ -14,11 +14,8 @@ const LogViewer = ({ logs }) => {
     if (logs.length === 0) return null;
 
     return (
-        <div className="rounded-xl overflow-hidden animate-fade-in" style={{
-            background: 'var(--bg-card)',
-            border: '1px solid var(--border)',
-        }}>
-            {/* Header */}
+        <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+            {/* Header toggle */}
             <button
                 onClick={() => setCollapsed(!collapsed)}
                 className="w-full flex items-center justify-between px-4 py-2.5 transition-colors hover:opacity-80"
@@ -29,29 +26,18 @@ const LogViewer = ({ logs }) => {
                     <span className="text-xs font-semibold font-mono tracking-wide" style={{ color: 'var(--text-secondary)' }}>
                         LOGS
                     </span>
-                    <span className="text-[10px] font-mono px-1.5 py-0.5 rounded" style={{
-                        background: 'rgba(59,130,246,0.1)',
-                        color: 'var(--text-muted)',
-                    }}>
-                        {logs.length}
-                    </span>
+                    <span className="badge badge-blue text-[10px]">{logs.length}</span>
                 </div>
-                {collapsed ? (
-                    <ChevronDown className="w-3.5 h-3.5" style={{ color: 'var(--text-muted)' }} />
-                ) : (
-                    <ChevronUp className="w-3.5 h-3.5" style={{ color: 'var(--text-muted)' }} />
-                )}
+                {collapsed
+                    ? <ChevronDown className="w-3.5 h-3.5" style={{ color: 'var(--text-muted)' }} />
+                    : <ChevronUp className="w-3.5 h-3.5" style={{ color: 'var(--text-muted)' }} />
+                }
             </button>
 
-            {/* Log content */}
             {!collapsed && (
                 <div className="px-4 py-3 max-h-48 overflow-y-auto space-y-0.5">
                     {logs.map((log, index) => (
-                        <div
-                            key={index}
-                            className="flex gap-2 py-0.5 rounded text-xs font-mono transition-colors hover:opacity-90"
-                            style={{ color: 'var(--text-secondary)' }}
-                        >
+                        <div key={index} className="flex gap-2 py-0.5 text-xs font-mono" style={{ color: 'var(--text-secondary)' }}>
                             <span className="flex-shrink-0 select-none" style={{ color: 'var(--text-muted)' }}>
                                 {String(index + 1).padStart(3, '0')}
                             </span>
