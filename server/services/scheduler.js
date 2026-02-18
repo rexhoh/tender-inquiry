@@ -4,7 +4,20 @@ const path = require('path');
 const scraperService = require('./scraper');
 
 const SCHEDULE_FILE = path.join(__dirname, '../data/schedules.json');
-let jobs = {}; // Store schedule rules/jobs in memory: { id: jobObject }
+const HISTORY_FILE = path.join(__dirname, '../data/search_history.json');
+let jobs = {}; // { id: { id, keyword, frequency, hour, minute, dayOfWeek, createdAt, jobRef } }
+
+// Helper: read/write search history (for saving scheduled results)
+function readHistory() {
+    try {
+        return JSON.parse(fs.readFileSync(HISTORY_FILE, 'utf8'));
+    } catch {
+        return [];
+    }
+}
+function writeHistory(data) {
+    fs.writeFileSync(HISTORY_FILE, JSON.stringify(data, null, 2));
+}
 
 // Helper to save to disk
 function saveSchedules() {
@@ -12,7 +25,10 @@ function saveSchedules() {
         id: j.id,
         keyword: j.keyword,
         frequency: j.frequency,
-        createdAt: j.createdAt
+        hour: j.hour,
+        minute: j.minute,
+        dayOfWeek: j.dayOfWeek,
+        createdAt: j.createdAt,
     }));
     fs.writeFileSync(SCHEDULE_FILE, JSON.stringify(data, null, 2));
 }
@@ -22,52 +38,102 @@ function init() {
     if (fs.existsSync(SCHEDULE_FILE)) {
         const data = JSON.parse(fs.readFileSync(SCHEDULE_FILE, 'utf8'));
         data.forEach(jobData => {
+            // Migrate old entries that don't have hour/minute
+            if (jobData.hour === undefined) jobData.hour = 9;
+            if (jobData.minute === undefined) jobData.minute = 0;
+            if (jobData.frequency === 'weekly' && jobData.dayOfWeek === undefined) jobData.dayOfWeek = 1;
             scheduleJobFromData(jobData);
         });
         console.log(`Loaded ${data.length} schedules.`);
     }
 }
 
+// Helper to format date as yyyy/MM/dd
+function formatDate(d) {
+    const yyyy = d.getFullYear();
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    return `${yyyy}/${mm}/${dd}`;
+}
+
 function scheduleJobFromData(jobData) {
-    // Determine cron rule based on frequency
-    // frequency: 'daily' (e.g. 09:00), 'weekly' (e.g. Monday 09:00)
-    // For simplicity, let's hardcode 'daily' = every day at 09:00, 'weekly' = Monday 09:00
-    // Real implementation would allow custom times.
+    const hour = jobData.hour ?? 9;
+    const minute = jobData.minute ?? 0;
 
     let rule;
     if (jobData.frequency === 'daily') {
-        rule = '0 9 * * *'; // Run at 9:00 AM every day
+        // Run at specified hour:minute every day
+        rule = `${minute} ${hour} * * *`;
     } else if (jobData.frequency === 'weekly') {
-        rule = '0 9 * * 1'; // Run at 9:00 AM every Monday
+        // Run at specified hour:minute on specified day of week (0=Sunday, 1=Monday, ...)
+        const dow = jobData.dayOfWeek ?? 1;
+        rule = `${minute} ${hour} * * ${dow}`;
     } else {
-        rule = '*/5 * * * *'; // Default: every 5 minutes (for testing)
+        rule = '*/5 * * * *'; // fallback: every 5 minutes
     }
 
     const job = schedule.scheduleJob(rule, async () => {
-        console.log(`Running scheduled job: ${jobData.keyword}`);
+        console.log(`Running scheduled job: "${jobData.keyword}" (${jobData.frequency})`);
         const today = new Date();
-        const yyyy = today.getFullYear();
-        const mm = String(today.getMonth() + 1).padStart(2, '0');
-        const dd = String(today.getDate()).padStart(2, '0');
-        const ds = `${yyyy}/${mm}/${dd}`;
+
+        let startDate, endDate;
+        endDate = formatDate(today);
+
+        if (jobData.frequency === 'daily') {
+            // Daily: search today and yesterday
+            const yesterday = new Date(today);
+            yesterday.setDate(yesterday.getDate() - 1);
+            startDate = formatDate(yesterday);
+        } else {
+            // Weekly: search past 7 days
+            const weekAgo = new Date(today);
+            weekAgo.setDate(weekAgo.getDate() - 7);
+            startDate = formatDate(weekAgo);
+        }
 
         try {
-            await scraperService.searchTenders(jobData.keyword, ds, ds); // Search for today
+            const results = await scraperService.searchTenders(jobData.keyword, startDate, endDate);
+            console.log(`Scheduled job "${jobData.keyword}" completed: ${results.length} results`);
+
+            // Save results to search history
+            const historyEntry = {
+                id: Date.now().toString(),
+                type: 'scheduled',
+                keyword: jobData.keyword,
+                startDate,
+                endDate,
+                resultCount: results.length,
+                results: results,
+                createdAt: new Date().toISOString(),
+            };
+            const history = readHistory();
+            history.unshift(historyEntry);
+            if (history.length > 100) history.length = 100;
+            writeHistory(history);
         } catch (e) {
             console.error(`Scheduled job failed for ${jobData.keyword}:`, e);
         }
     });
 
-    jobs[jobData.id] = { ...jobData, jobRef: job };
+    jobs[jobData.id] = {
+        ...jobData,
+        hour,
+        minute,
+        dayOfWeek: jobData.dayOfWeek,
+        jobRef: job,
+    };
 }
 
-function addJob(keyword, frequency) {
-    const id = Date.now().toString(); // Simple ID
+function addJob(keyword, frequency, hour = 9, minute = 0, dayOfWeek = 1) {
+    const id = Date.now().toString();
     const jobData = {
         id,
         keyword,
         frequency,
-        createdAt: new Date().toISOString()
+        hour: parseInt(hour, 10),
+        minute: parseInt(minute, 10),
+        dayOfWeek: frequency === 'weekly' ? parseInt(dayOfWeek, 10) : undefined,
+        createdAt: new Date().toISOString(),
     };
 
     scheduleJobFromData(jobData);
@@ -92,7 +158,10 @@ function getJobs() {
         id: j.id,
         keyword: j.keyword,
         frequency: j.frequency,
-        createdAt: j.createdAt
+        hour: j.hour,
+        minute: j.minute,
+        dayOfWeek: j.dayOfWeek,
+        createdAt: j.createdAt,
     }));
 }
 
@@ -100,5 +169,5 @@ module.exports = {
     init,
     addJob,
     removeJob,
-    getJobs
+    getJobs,
 };

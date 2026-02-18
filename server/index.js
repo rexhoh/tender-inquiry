@@ -165,8 +165,8 @@ app.get('/api/schedules', (req, res) => {
 
 app.post('/api/schedules', (req, res) => {
     try {
-        const { keyword, frequency } = req.body;
-        const job = schedulerService.addJob(keyword, frequency);
+        const { keyword, frequency, hour, minute, dayOfWeek } = req.body;
+        const job = schedulerService.addJob(keyword, frequency, hour, minute, dayOfWeek);
         res.json({ success: true, job });
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });
