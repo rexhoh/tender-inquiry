@@ -1,26 +1,35 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
 
-@layer base {
-  :root {
-    --bg-primary: #0b1120;
-    --bg-secondary: #131c31;
-    --bg-card: #172035;
-    --bg-elevated: #1e2a45;
-    --bg-input: #0e1525;
-    --accent: #3b82f6;
-    --accent-light: #60a5fa;
-    --accent-glow: rgba(59, 130, 246, 0.15);
-    --text-primary: #e2e8f0;
-    --text-secondary: #94a3b8;
-    --text-muted: #64748b;
-    --border: rgba(148, 163, 184, 0.12);
-    --border-hover: rgba(148, 163, 184, 0.22);
-    --success: #22c55e;
-    --warning: #f59e0b;
-    --danger: #ef4444;
-  }
+/* Theme Config (Tailwind v4 replacement for tailwind.config.js) */
+@theme {
+  --color-surface: #141b2d;
+  --color-surface-light: #1a2340;
+  --color-surface-dark: #0f1629;
+  --color-accent: #3b82f6;
+  --color-accent-light: #60a5fa;
+  --color-accent-dim: #1e3a5f;
+  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+}
+
+/* App Design Tokens */
+:root {
+  --bg-primary: #0b1120;
+  --bg-secondary: #131c31;
+  --bg-card: #172035;
+  --bg-elevated: #1e2a45;
+  --bg-input: #0e1525;
+  --accent: #3b82f6;
+  --accent-light: #60a5fa;
+  --accent-glow: rgba(59, 130, 246, 0.15);
+  --text-primary: #e2e8f0;
+  --text-secondary: #94a3b8;
+  --text-muted: #64748b;
+  --border: rgba(148, 163, 184, 0.12);
+  --border-hover: rgba(148, 163, 184, 0.22);
+  --success: #22c55e;
+  --warning: #f59e0b;
+  --danger: #ef4444;
 }
 
 * {
