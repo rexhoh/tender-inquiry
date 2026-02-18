@@ -112,6 +112,7 @@ const SearchForm = ({ onResults }) => {
                                     value={startDate}
                                     onChange={(e) => setStartDate(e.target.value)}
                                     className="input-field text-center font-mono flex-1 min-w-0"
+                                    style={{ width: 'auto' }}
                                 />
                                 <ArrowRight className="w-4 h-4 flex-shrink-0" style={{ color: 'var(--text-muted)' }} />
                                 <input
@@ -120,6 +121,7 @@ const SearchForm = ({ onResults }) => {
                                     value={endDate}
                                     onChange={(e) => setEndDate(e.target.value)}
                                     className="input-field text-center font-mono flex-1 min-w-0"
+                                    style={{ width: 'auto' }}
                                 />
                             </div>
                         </div>
