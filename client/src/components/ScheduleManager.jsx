@@ -63,7 +63,7 @@ const ScheduleManager = () => {
                             value={newKeyword}
                             onChange={(e) => setNewKeyword(e.target.value)}
                             placeholder="例如: AI AND 系統"
-                            className="input-field"
+                            className="input-field w-full"
                         />
                     </div>
                     <div className="w-full sm:w-40 space-y-1.5">
@@ -71,7 +71,7 @@ const ScheduleManager = () => {
                         <select
                             value={frequency}
                             onChange={(e) => setFrequency(e.target.value)}
-                            className="input-field appearance-none"
+                            className="input-field w-full appearance-none"
                         >
                             <option value="daily">每天 09:00</option>
                             <option value="weekly">每週一 09:00</option>

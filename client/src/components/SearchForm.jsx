@@ -95,7 +95,7 @@ const SearchForm = ({ onResults }) => {
                             value={keyword}
                             onChange={(e) => setKeyword(e.target.value)}
                             placeholder="輸入關鍵字，例如：AI AND 系統 OR 資安"
-                            className="input-field"
+                            className="input-field w-full"
                         />
                     </div>
 
