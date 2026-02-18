@@ -1,38 +1,66 @@
-import React, { useEffect, useRef } from 'react';
-import { Terminal } from 'lucide-react';
+import React, { useEffect, useRef, useState } from 'react';
+import { Terminal, ChevronDown, ChevronUp } from 'lucide-react';
 
 const LogViewer = ({ logs }) => {
     const bottomRef = useRef(null);
+    const [collapsed, setCollapsed] = useState(false);
 
     useEffect(() => {
-        bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-    }, [logs]);
+        if (!collapsed) {
+            bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+        }
+    }, [logs, collapsed]);
 
     if (logs.length === 0) return null;
 
     return (
-        <div className="mt-6 rounded-lg border border-cyan-500/30 bg-black/80 font-mono text-sm shadow-[0_0_15px_rgba(0,255,255,0.1)] overflow-hidden">
-            <div className="flex items-center justify-between border-b border-cyan-500/20 bg-cyan-900/10 px-4 py-2">
-                <div className="flex items-center gap-2 text-cyan-400">
-                    <Terminal className="h-4 w-4" />
-                    <span className="font-bold tracking-wider">SYSTEM_LOGS</span>
+        <div className="rounded-xl overflow-hidden animate-fade-in" style={{
+            background: 'var(--bg-card)',
+            border: '1px solid var(--border)',
+        }}>
+            {/* Header */}
+            <button
+                onClick={() => setCollapsed(!collapsed)}
+                className="w-full flex items-center justify-between px-4 py-2.5 transition-colors hover:opacity-80"
+                style={{ borderBottom: collapsed ? 'none' : '1px solid var(--border)' }}
+            >
+                <div className="flex items-center gap-2">
+                    <Terminal className="h-3.5 w-3.5 text-blue-400" />
+                    <span className="text-xs font-semibold font-mono tracking-wide" style={{ color: 'var(--text-secondary)' }}>
+                        LOGS
+                    </span>
+                    <span className="text-[10px] font-mono px-1.5 py-0.5 rounded" style={{
+                        background: 'rgba(59,130,246,0.1)',
+                        color: 'var(--text-muted)',
+                    }}>
+                        {logs.length}
+                    </span>
                 </div>
-                <div className="flex gap-1.5">
-                    <div className="h-2 w-2 rounded-full bg-red-500/50" />
-                    <div className="h-2 w-2 rounded-full bg-yellow-500/50" />
-                    <div className="h-2 w-2 rounded-full bg-green-500/50" />
-                </div>
-            </div>
+                {collapsed ? (
+                    <ChevronDown className="w-3.5 h-3.5" style={{ color: 'var(--text-muted)' }} />
+                ) : (
+                    <ChevronUp className="w-3.5 h-3.5" style={{ color: 'var(--text-muted)' }} />
+                )}
+            </button>
 
-            <div className="p-4 h-48 overflow-y-auto space-y-1">
-                {logs.map((log, index) => (
-                    <div key={index} className="flex gap-3 text-cyan-200/80 hover:text-cyan-100 hover:bg-cyan-500/5 p-0.5 rounded transition-colors">
-                        <span className="text-cyan-600 select-none">[{new Date().toLocaleTimeString()}]</span>
-                        <span className="break-all">{log}</span>
-                    </div>
-                ))}
-                <div ref={bottomRef} />
-            </div>
+            {/* Log content */}
+            {!collapsed && (
+                <div className="px-4 py-3 max-h-48 overflow-y-auto space-y-0.5">
+                    {logs.map((log, index) => (
+                        <div
+                            key={index}
+                            className="flex gap-2 py-0.5 rounded text-xs font-mono transition-colors hover:opacity-90"
+                            style={{ color: 'var(--text-secondary)' }}
+                        >
+                            <span className="flex-shrink-0 select-none" style={{ color: 'var(--text-muted)' }}>
+                                {String(index + 1).padStart(3, '0')}
+                            </span>
+                            <span className="break-all">{log}</span>
+                        </div>
+                    ))}
+                    <div ref={bottomRef} />
+                </div>
+            )}
         </div>
     );
 };

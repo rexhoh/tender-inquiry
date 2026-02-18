@@ -1,6 +1,5 @@
 import React, { useState } from 'react';
-import axios from 'axios'; // Still used for other things if needed, but search uses EventSource
-import { Search, HelpCircle, Loader2, AlertCircle } from 'lucide-react';
+import { Search, HelpCircle, Loader2, AlertCircle, ArrowRight } from 'lucide-react';
 import { format, subDays } from 'date-fns';
 import LogViewer from './LogViewer';
 
@@ -11,41 +10,35 @@ const SearchForm = ({ onResults }) => {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState(null);
     const [logs, setLogs] = useState([]);
+    const [showTooltip, setShowTooltip] = useState(false);
 
     const handleSearch = async (e) => {
         e.preventDefault();
         setLoading(true);
         setError(null);
         setLogs([]);
-        onResults([]); // Clear previous results
+        onResults([]);
 
-        // Use EventSource for streaming
-        const queryParams = new URLSearchParams({
-            keyword,
-            startDate,
-            endDate
-        }).toString();
-
+        const queryParams = new URLSearchParams({ keyword, startDate, endDate }).toString();
         const eventSource = new EventSource(`/api/search-stream?${queryParams}`);
 
         eventSource.onopen = () => {
-            setLogs(prev => [...prev, '⚡ Connection established. Initializing search protocols...']);
+            setLogs(prev => [...prev, '⚡ 連線建立，搜尋啟動中...']);
         };
 
         eventSource.onmessage = (event) => {
             try {
                 const data = JSON.parse(event.data);
-
                 if (data.type === 'log') {
                     setLogs(prev => [...prev, data.message]);
                 } else if (data.type === 'complete') {
                     onResults(data.results);
-                    setLogs(prev => [...prev, `✅ Process complete. Received ${data.results.length} records.`]);
+                    setLogs(prev => [...prev, `✅ 搜尋完成！共 ${data.results.length} 筆資料`]);
                     setLoading(false);
                     eventSource.close();
                 } else if (data.type === 'error') {
                     setError(data.message);
-                    setLogs(prev => [...prev, `❌ Error: ${data.message}`]);
+                    setLogs(prev => [...prev, `❌ 錯誤: ${data.message}`]);
                     setLoading(false);
                     eventSource.close();
                 }
@@ -54,13 +47,9 @@ const SearchForm = ({ onResults }) => {
             }
         };
 
-        eventSource.onerror = (err) => {
-            console.error('EventSource failed:', err);
-            // Only set error if we haven't completed (sometimes close triggers error in React dev mode)
+        eventSource.onerror = () => {
             if (loading) {
-                // eventSource.close(); // Don't close immediately, let it try to reconnect or user cancel
-                // Actually for this use case, error usually means stream died.
-                setError('Stream connection interrupted.');
+                setError('串流連線中斷');
                 setLoading(false);
                 eventSource.close();
             }
@@ -68,98 +57,151 @@ const SearchForm = ({ onResults }) => {
     };
 
     return (
-        <div className="space-y-6">
-            <div className="bg-card/50 backdrop-blur-md p-8 rounded-xl shadow-[0_0_20px_rgba(0,255,255,0.05)] border border-cyan-900/50 relative overflow-hidden group">
-                {/* Decorative Elements */}
-                <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-cyan-500 to-transparent opacity-50" />
-                <div className="absolute -left-10 -bottom-10 w-40 h-40 bg-cyan-500/10 rounded-full blur-3xl pointer-events-none" />
-
-                <form onSubmit={handleSearch} className="space-y-6 relative z-10">
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        {/* Keyword Input */}
-                        <div className="space-y-2">
-                            <label className="text-sm font-bold text-cyan-400 tracking-wider flex items-center uppercase">
-                                Search Query
-                                <div className="group/tooltip relative ml-2">
-                                    <HelpCircle className="w-4 h-4 text-cyan-600 cursor-help hover:text-cyan-400 transition-colors" />
-                                    <div className="absolute left-1/2 -translate-x-1/2 bottom-full mb-3 hidden group-hover/tooltip:block w-72 p-3 bg-black/95 text-xs text-cyan-200 rounded border border-cyan-500/50 shadow-xl backdrop-blur-xl z-50">
-                                        支援 "AND", "OR", "NOT" 邏輯。<br />
-                                        例如: <code>AI OR 資安</code><br />
-                                        系統會自動拆分並執行多次搜尋後合併結果。
-                                    </div>
-                                </div>
+        <div className="space-y-4 animate-fade-in">
+            {/* Search Card */}
+            <div className="rounded-xl p-5 sm:p-6" style={{
+                background: 'var(--bg-card)',
+                border: '1px solid var(--border)',
+            }}>
+                <form onSubmit={handleSearch} className="space-y-5">
+                    {/* Keyword Section */}
+                    <div className="space-y-2">
+                        <div className="flex items-center gap-2">
+                            <label className="text-sm font-semibold" style={{ color: 'var(--text-secondary)' }}>
+                                搜尋關鍵字
                             </label>
-                            <input
-                                type="text"
-                                value={keyword}
-                                onChange={(e) => setKeyword(e.target.value)}
-                                placeholder="例如: 電腦 AND 軟體"
-                                className="w-full bg-black/40 border border-cyan-900/50 rounded-lg px-4 py-3 text-cyan-100 placeholder-cyan-900/50 focus:ring-2 focus:ring-cyan-500/50 focus:border-cyan-500 outline-none transition-all"
-                            />
+                            <div className="relative">
+                                <button
+                                    type="button"
+                                    onClick={() => setShowTooltip(!showTooltip)}
+                                    className="text-slate-600 hover:text-blue-400 transition-colors"
+                                >
+                                    <HelpCircle className="w-3.5 h-3.5" />
+                                </button>
+                                {showTooltip && (
+                                    <div className="absolute left-0 top-full mt-2 w-72 p-3 rounded-lg text-xs z-50 shadow-xl"
+                                        style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-hover)', color: 'var(--text-secondary)' }}>
+                                        <p className="font-semibold text-blue-400 mb-1.5">搜尋語法說明</p>
+                                        <div className="space-y-1 font-mono text-[11px]">
+                                            <p><span className="text-emerald-400">OR</span> → 聯集：<span className="text-slate-400">AI OR 資安</span></p>
+                                            <p><span className="text-amber-400">AND</span> → 交集：<span className="text-slate-400">AI AND 系統</span></p>
+                                            <p><span className="text-red-400">NOT</span> → 排除：<span className="text-slate-400">AI NOT 醫療</span></p>
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
                         </div>
+                        <input
+                            id="keyword-input"
+                            type="text"
+                            value={keyword}
+                            onChange={(e) => setKeyword(e.target.value)}
+                            placeholder="輸入關鍵字，例如：AI AND 系統 OR 資安"
+                            className="w-full rounded-lg px-4 py-3 text-sm outline-none transition-all duration-200 placeholder:text-slate-600"
+                            style={{
+                                background: 'var(--bg-secondary)',
+                                border: '1px solid var(--border)',
+                                color: 'var(--text-primary)',
+                            }}
+                            onFocus={(e) => e.target.style.borderColor = 'rgba(59,130,246,0.4)'}
+                            onBlur={(e) => e.target.style.borderColor = 'var(--border)'}
+                        />
+                    </div>
 
-                        {/* Date Input */}
-                        <div className="space-y-2">
-                            <label className="text-sm font-bold text-cyan-400 tracking-wider uppercase">Date Range</label>
-                            <div className="flex gap-3">
+                    {/* Date + Button Row */}
+                    <div className="flex flex-col sm:flex-row gap-4 items-stretch sm:items-end">
+                        {/* Date Range */}
+                        <div className="flex-1 space-y-2">
+                            <label className="text-sm font-semibold" style={{ color: 'var(--text-secondary)' }}>
+                                公告日期範圍
+                            </label>
+                            <div className="flex items-center gap-2">
                                 <input
+                                    id="start-date-input"
                                     type="text"
                                     value={startDate}
                                     onChange={(e) => setStartDate(e.target.value)}
-                                    className="w-full bg-black/40 border border-cyan-900/50 rounded-lg px-4 py-3 text-cyan-100 placeholder-cyan-900/50 focus:ring-2 focus:ring-cyan-500/50 focus:border-cyan-500 outline-none transition-all text-center font-mono"
+                                    className="flex-1 rounded-lg px-3 py-2.5 text-sm font-mono text-center outline-none transition-all duration-200"
+                                    style={{
+                                        background: 'var(--bg-secondary)',
+                                        border: '1px solid var(--border)',
+                                        color: 'var(--text-primary)',
+                                    }}
+                                    onFocus={(e) => e.target.style.borderColor = 'rgba(59,130,246,0.4)'}
+                                    onBlur={(e) => e.target.style.borderColor = 'var(--border)'}
                                 />
-                                <span className="text-cyan-700 self-center font-bold">TO</span>
+                                <ArrowRight className="w-4 h-4 flex-shrink-0" style={{ color: 'var(--text-muted)' }} />
                                 <input
+                                    id="end-date-input"
                                     type="text"
                                     value={endDate}
                                     onChange={(e) => setEndDate(e.target.value)}
-                                    className="w-full bg-black/40 border border-cyan-900/50 rounded-lg px-4 py-3 text-cyan-100 placeholder-cyan-900/50 focus:ring-2 focus:ring-cyan-500/50 focus:border-cyan-500 outline-none transition-all text-center font-mono"
+                                    className="flex-1 rounded-lg px-3 py-2.5 text-sm font-mono text-center outline-none transition-all duration-200"
+                                    style={{
+                                        background: 'var(--bg-secondary)',
+                                        border: '1px solid var(--border)',
+                                        color: 'var(--text-primary)',
+                                    }}
+                                    onFocus={(e) => e.target.style.borderColor = 'rgba(59,130,246,0.4)'}
+                                    onBlur={(e) => e.target.style.borderColor = 'var(--border)'}
                                 />
                             </div>
                         </div>
-                    </div>
 
-                    {/* Submit Area */}
-                    <div className="flex justify-between items-center pt-2">
-                        <div className="text-xs text-cyan-700 font-mono">
-                            {loading ? 'STATUS: PROCESSING...' : 'STATUS: READY'}
-                        </div>
+                        {/* Search Button */}
                         <button
+                            id="search-button"
                             type="submit"
-                            disabled={loading}
-                            className={`
-                                relative group overflow-hidden px-8 py-3 rounded-lg font-bold tracking-wider uppercase transition-all
-                                ${loading
-                                    ? 'bg-cyan-900/20 text-cyan-700 cursor-not-allowed border border-cyan-900/30'
-                                    : 'bg-cyan-500/10 text-cyan-400 hover:text-black border border-cyan-500 hover:bg-cyan-500 hover:shadow-[0_0_20px_rgba(0,255,255,0.4)]'}
-                            `}
+                            disabled={loading || !keyword.trim()}
+                            className="flex items-center justify-center gap-2 px-6 py-2.5 rounded-lg text-sm font-semibold transition-all duration-200 sm:min-w-[140px]"
+                            style={{
+                                background: loading || !keyword.trim() ? 'rgba(59,130,246,0.08)' : 'rgba(59,130,246,0.12)',
+                                border: loading || !keyword.trim() ? '1px solid rgba(59,130,246,0.1)' : '1px solid rgba(59,130,246,0.3)',
+                                color: loading || !keyword.trim() ? 'rgba(59,130,246,0.4)' : '#60a5fa',
+                                cursor: loading || !keyword.trim() ? 'not-allowed' : 'pointer',
+                            }}
+                            onMouseEnter={(e) => {
+                                if (!loading && keyword.trim()) {
+                                    e.target.style.background = 'rgba(59,130,246,0.2)';
+                                    e.target.style.borderColor = 'rgba(59,130,246,0.5)';
+                                }
+                            }}
+                            onMouseLeave={(e) => {
+                                if (!loading && keyword.trim()) {
+                                    e.target.style.background = 'rgba(59,130,246,0.12)';
+                                    e.target.style.borderColor = 'rgba(59,130,246,0.3)';
+                                }
+                            }}
                         >
-                            <span className="relative z-10 flex items-center">
-                                {loading ? (
-                                    <>
-                                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                                        Processing
-                                    </>
-                                ) : (
-                                    <>
-                                        <Search className="w-4 h-4 mr-2" />
-                                        Initialize Search
-                                    </>
-                                )}
-                            </span>
+                            {loading ? (
+                                <>
+                                    <Loader2 className="w-4 h-4 animate-spin" />
+                                    搜尋中...
+                                </>
+                            ) : (
+                                <>
+                                    <Search className="w-4 h-4" />
+                                    開始搜尋
+                                </>
+                            )}
                         </button>
                     </div>
 
+                    {/* Error */}
                     {error && (
-                        <div className="flex items-center gap-2 text-red-400 bg-red-900/20 p-3 rounded border border-red-500/30">
-                            <AlertCircle className="w-4 h-4" />
+                        <div className="flex items-center gap-2 text-sm rounded-lg p-3" style={{
+                            background: 'rgba(239, 68, 68, 0.08)',
+                            border: '1px solid rgba(239, 68, 68, 0.15)',
+                            color: '#f87171',
+                        }}>
+                            <AlertCircle className="w-4 h-4 flex-shrink-0" />
                             {error}
                         </div>
                     )}
                 </form>
             </div>
 
-            {/* Log Viewer Component */}
+            {/* Log Viewer */}
             <LogViewer logs={logs} />
         </div>
     );

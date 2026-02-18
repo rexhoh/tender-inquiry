@@ -2,70 +2,76 @@ import React, { useState } from 'react';
 import SearchForm from './components/SearchForm';
 import ResultsTable from './components/ResultsTable';
 import ScheduleManager from './components/ScheduleManager';
-import { Search, Calendar, Ghost } from 'lucide-react';
+import { Search, Calendar, Database } from 'lucide-react';
 
 function App() {
   const [activeTab, setActiveTab] = useState('search');
   const [results, setResults] = useState([]);
 
   return (
-    <div className="min-h-screen p-6 md:p-12 relative overflow-hidden text-cyan-50">
+    <div className="min-h-screen relative" style={{ background: 'var(--bg-primary)' }}>
 
-      {/* Background Decor */}
-      <div className="fixed top-0 left-0 w-full h-full pointer-events-none z-0">
-        <div className="absolute top-[-20%] right-[-10%] w-[600px] h-[600px] bg-purple-600/10 rounded-full blur-[120px]" />
-        <div className="absolute bottom-[-20%] left-[-10%] w-[600px] h-[600px] bg-cyan-600/10 rounded-full blur-[120px]" />
-      </div>
+      {/* Top bar */}
+      <header className="sticky top-0 z-50 backdrop-blur-xl border-b" style={{ borderColor: 'var(--border)', background: 'rgba(10, 14, 26, 0.85)' }}>
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex items-center justify-between h-14 sm:h-16">
 
-      <div className="max-w-7xl mx-auto space-y-10 relative z-10">
-        {/* Header */}
-        <header className="flex flex-col md:flex-row justify-between items-end border-b border-cyan-900/30 pb-6 gap-6">
-          <div className="space-y-2">
-            <h1 className="text-5xl font-black italic tracking-tighter text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 via-cyan-200 to-white drop-shadow-[0_0_10px_rgba(0,255,255,0.3)]">
-              TENDER<span className="text-cyan-600">.OS</span>
-            </h1>
-            <p className="text-cyan-700 font-mono text-sm tracking-widest uppercase flex items-center gap-2">
-              <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
-              Government Inquiry System v2.0
-            </p>
-          </div>
-
-          <nav className="flex bg-black/40 p-1.5 rounded-lg border border-cyan-900/50 backdrop-blur-sm">
-            <button
-              onClick={() => setActiveTab('search')}
-              className={`flex items-center px-6 py-2.5 rounded transition-all font-bold tracking-wide ${activeTab === 'search'
-                  ? 'bg-cyan-500/20 text-cyan-300 shadow-[0_0_15px_rgba(0,255,255,0.1)] border border-cyan-500/30'
-                  : 'text-cyan-900 hover:text-cyan-500'
-                }`}
-            >
-              <Search className="w-4 h-4 mr-2" />
-              SEARCH
-            </button>
-            <button
-              onClick={() => setActiveTab('schedule')}
-              className={`flex items-center px-6 py-2.5 rounded transition-all font-bold tracking-wide ${activeTab === 'schedule'
-                  ? 'bg-purple-500/20 text-purple-300 shadow-[0_0_15px_rgba(168,85,247,0.1)] border border-purple-500/30'
-                  : 'text-cyan-900 hover:text-purple-400'
-                }`}
-            >
-              <Calendar className="w-4 h-4 mr-2" />
-              SCHEDULE
-            </button>
-          </nav>
-        </header>
-
-        {/* Content */}
-        <main className="animate-in fade-in slide-in-from-bottom-4 duration-500">
-          {activeTab === 'search' ? (
-            <div className="space-y-8">
-              <SearchForm onResults={setResults} />
-              <ResultsTable results={results} />
+            {/* Logo */}
+            <div className="flex items-center gap-2 sm:gap-3">
+              <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-lg flex items-center justify-center" style={{ background: 'var(--accent-glow)', border: '1px solid rgba(59,130,246,0.2)' }}>
+                <Database className="w-4 h-4 sm:w-5 sm:h-5 text-blue-400" />
+              </div>
+              <div>
+                <h1 className="text-base sm:text-lg font-bold tracking-tight text-white leading-none">
+                  標案查詢
+                </h1>
+                <p className="text-[10px] sm:text-xs font-mono tracking-wider hidden sm:block" style={{ color: 'var(--text-muted)' }}>
+                  TENDER.OS v3.0
+                </p>
+              </div>
             </div>
-          ) : (
-            <ScheduleManager />
-          )}
-        </main>
-      </div>
+
+            {/* Tab Navigation */}
+            <nav className="flex rounded-lg p-1" style={{ background: 'var(--bg-secondary)' }}>
+              <button
+                onClick={() => setActiveTab('search')}
+                className={`flex items-center gap-1.5 px-3 sm:px-4 py-1.5 sm:py-2 rounded-md text-xs sm:text-sm font-medium transition-all duration-200 ${activeTab === 'search'
+                    ? 'bg-blue-500/10 text-blue-400 shadow-sm'
+                    : 'text-slate-500 hover:text-slate-300'
+                  }`}
+                style={activeTab === 'search' ? { border: '1px solid rgba(59,130,246,0.15)' } : {}}
+              >
+                <Search className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">搜尋</span>
+              </button>
+              <button
+                onClick={() => setActiveTab('schedule')}
+                className={`flex items-center gap-1.5 px-3 sm:px-4 py-1.5 sm:py-2 rounded-md text-xs sm:text-sm font-medium transition-all duration-200 ${activeTab === 'schedule'
+                    ? 'bg-blue-500/10 text-blue-400 shadow-sm'
+                    : 'text-slate-500 hover:text-slate-300'
+                  }`}
+                style={activeTab === 'schedule' ? { border: '1px solid rgba(59,130,246,0.15)' } : {}}
+              >
+                <Calendar className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">排程</span>
+              </button>
+            </nav>
+
+          </div>
+        </div>
+      </header>
+
+      {/* Main Content */}
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8 relative z-10">
+        {activeTab === 'search' ? (
+          <div className="space-y-6">
+            <SearchForm onResults={setResults} />
+            <ResultsTable results={results} />
+          </div>
+        ) : (
+          <ScheduleManager />
+        )}
+      </main>
     </div>
   );
 }
