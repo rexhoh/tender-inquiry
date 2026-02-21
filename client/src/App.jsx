@@ -106,7 +106,7 @@ function App() {
       {/* ========== 頁尾版權聲明 ========== */}
       <footer className="py-6 text-center border-t border-[var(--border)] relative z-10" style={{ background: 'var(--bg-card)' }}>
         <p className="text-sm" style={{ color: 'var(--text-muted)' }}>
-          &copy; {new Date().getFullYear()} TENDER.OS. Rex All rights reserved.
+          &copy; {new Date().getFullYear()} TENDER.OS. Y.S Hao All rights reserved.
         </p>
       </footer>
     </div>

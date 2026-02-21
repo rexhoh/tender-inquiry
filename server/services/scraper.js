@@ -218,9 +218,6 @@ async function searchTenders(keyword, startDate, endDate, onProgress = () => { }
                             publishDate: item.publishDate || '', // 公告日期
                             deadline: item.deadline || '',   // 截止日期
                             budget: item.budget || '',       // 預算金額
-                            centralGov: '',                  // 中央政府計畫（預留欄位）
-                            location: '',                    // 履約地點（預留欄位）
-                            contact: '',                     // 機關窗口（預留欄位）
                             detailLink: item.link            // 標案詳細連結
                         });
                     }
@@ -353,9 +350,6 @@ async function searchTenders(keyword, startDate, endDate, onProgress = () => { }
                 { id: 'publishDate', title: '公告日期' },
                 { id: 'deadline', title: '截止日期' },
                 { id: 'budget', title: '預算金額' },
-                { id: 'centralGov', title: '中央政府計畫' },
-                { id: 'location', title: '履約地點' },
-                { id: 'contact', title: '機關窗口' },
                 { id: 'detailLink', title: '詳細連結' }
             ],
             encoding: 'utf8'
